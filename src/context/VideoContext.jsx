@@ -18,7 +18,6 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // 1. Naya Profile Setup Function (Merged)
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -48,7 +47,6 @@ export const VideoProvider = ({ children }) => {
             });
 
             if (token) {
-                // setDoc with merge use kiya hai taaki naye user ka error na aaye
                 await setDoc(doc(db, "users", uid), { fcmToken: token }, { merge: true });
                 console.log("FCM Token Updated ✅");
             }
@@ -61,24 +59,43 @@ export const VideoProvider = ({ children }) => {
         if (!user) return;
         setupNotifications(user.uid);
 
-        const peer = new Peer(user.uid, {
-            debug: 2,
-            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
-        });
+        // --- PEERJS RECONNECT LOGIC ---
+        const initializePeer = () => {
+            if (peerInstance.current) {
+                peerInstance.current.destroy();
+            }
 
-        peerInstance.current = peer;
-        peer.on('open', (id) => console.log('My Peer ID is: ' + id));
+            const peer = new Peer(user.uid, {
+                debug: 2,
+                config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
+            });
 
-        peer.on('call', (call) => {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-                if (myVideo.current) myVideo.current.srcObject = stream;
-                call.answer(stream);
-                call.on('stream', (userRemoteStream) => {
-                    setRemoteStream(userRemoteStream);
-                    if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
-                });
-            }).catch(err => console.error("Failed to get local stream", err));
-        });
+            peerInstance.current = peer;
+
+            peer.on('open', (id) => console.log('My Peer ID is: ' + id));
+
+            peer.on('call', (call) => {
+                navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+                    if (myVideo.current) myVideo.current.srcObject = stream;
+                    call.answer(stream);
+                    call.on('stream', (userRemoteStream) => {
+                        setRemoteStream(userRemoteStream);
+                        if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
+                    });
+                }).catch(err => console.error("Failed to get local stream", err));
+            });
+
+            // Agar ID taken error aaye, toh 3 second baad automatic reconnect try karega
+            peer.on('error', (err) => {
+                console.error("PeerJS Error Type:", err.type);
+                if (err.type === 'unavailable-id') {
+                    console.log("ID taken, retrying connection...");
+                    setTimeout(() => initializePeer(), 3000);
+                }
+            });
+        };
+
+        initializePeer();
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (d) => setUserData(d.data()));
         const unsubFriends = onSnapshot(query(collection(db, "users"), where("friends", "array-contains", user.uid)), (snap) => {
@@ -88,7 +105,7 @@ export const VideoProvider = ({ children }) => {
         return () => {
             unsubUser();
             unsubFriends();
-            peer.destroy();
+            if (peerInstance.current) peerInstance.current.destroy();
         };
     }, [user]);
 
@@ -96,12 +113,15 @@ export const VideoProvider = ({ children }) => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             if (myVideo.current) myVideo.current.srcObject = stream;
+
             const call = peerInstance.current.call(targetUser.uid, stream);
             if (!call) return;
+
             call.on('stream', (userRemoteStream) => {
                 setRemoteStream(userRemoteStream);
                 if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
             });
+
             if (targetUser.fcmToken) {
                 await addDoc(collection(db, "notifications"), {
                     to: targetUser.fcmToken,
