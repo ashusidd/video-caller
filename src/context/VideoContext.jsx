@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, messaging } from '../firebase';
 import { getToken } from "firebase/messaging";
-import { doc, onSnapshot, updateDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { AuthContext } from './AuthContext';
 
 export const VideoContext = createContext();
@@ -18,21 +18,38 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
+    // 1. Naya Profile Setup Function (Merged)
+    const setupProfile = async (name, username, phone) => {
+        if (!user) return;
+        try {
+            const userRef = doc(db, "users", user.uid);
+            await setDoc(userRef, {
+                uid: user.uid,
+                name: name,
+                username: username.toLowerCase(),
+                phone: phone || "",
+                photo: user.photoURL,
+                isProfileComplete: true,
+                friends: userData?.friends || []
+            }, { merge: true });
+            console.log("Profile Setup Success! ✅");
+        } catch (err) {
+            console.error("Profile Setup failed:", err);
+        }
+    };
+
     const setupNotifications = async (uid) => {
         try {
-            // Notification permission check
             const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
-                console.warn("Notification permission denied by user.");
-                return;
-            }
+            if (permission !== 'granted') return;
 
             const token = await getToken(messaging, {
                 vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg'
             });
 
             if (token) {
-                await updateDoc(doc(db, "users", uid), { fcmToken: token });
+                // setDoc with merge use kiya hai taaki naye user ka error na aaye
+                await setDoc(doc(db, "users", uid), { fcmToken: token }, { merge: true });
                 console.log("FCM Token Updated ✅");
             }
         } catch (err) {
@@ -42,28 +59,15 @@ export const VideoProvider = ({ children }) => {
 
     useEffect(() => {
         if (!user) return;
-
         setupNotifications(user.uid);
 
-        // PeerJS initialization with more stable options
         const peer = new Peer(user.uid, {
-            debug: 2, // 3 karoge toh detail mein logs milenge
+            debug: 2,
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
         });
 
         peerInstance.current = peer;
-
-        peer.on('open', (id) => {
-            console.log('My Peer ID is: ' + id);
-        });
-
-        peer.on('error', (err) => {
-            console.error('PeerJS Error Type:', err.type);
-            // Agar server busy hai toh page reload karke fresh connection try karein
-            if (err.type === 'server-error') {
-                console.log('Retrying PeerJS connection...');
-            }
-        });
+        peer.on('open', (id) => console.log('My Peer ID is: ' + id));
 
         peer.on('call', (call) => {
             navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
@@ -92,15 +96,12 @@ export const VideoProvider = ({ children }) => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             if (myVideo.current) myVideo.current.srcObject = stream;
-
             const call = peerInstance.current.call(targetUser.uid, stream);
             if (!call) return;
-
             call.on('stream', (userRemoteStream) => {
                 setRemoteStream(userRemoteStream);
                 if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
             });
-
             if (targetUser.fcmToken) {
                 await addDoc(collection(db, "notifications"), {
                     to: targetUser.fcmToken,
@@ -109,14 +110,10 @@ export const VideoProvider = ({ children }) => {
                     timestamp: serverTimestamp()
                 });
             }
-        } catch (err) {
-            console.error("Start call failed:", err);
-        }
+        } catch (err) { console.error("Start call failed:", err); }
     };
 
-    const endCall = () => {
-        window.location.reload();
-    };
+    const endCall = () => { window.location.reload(); };
 
     const searchUsers = async (term) => {
         const q = query(collection(db, "users"), where("username", ">=", term), where("username", "<=", term + '\uf8ff'));
@@ -127,7 +124,8 @@ export const VideoProvider = ({ children }) => {
     return (
         <VideoContext.Provider value={{
             userData, friends, selectedFriend, setSelectedFriend,
-            searchUsers, startCall, endCall, myVideo, remoteVideo, remoteStream
+            searchUsers, startCall, endCall, myVideo, remoteVideo,
+            remoteStream, setupProfile
         }}>
             {children}
         </VideoContext.Provider>
