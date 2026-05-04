@@ -14,10 +14,14 @@ export const VideoProvider = ({ children }) => {
     const [selectedFriend, setSelectedFriend] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
 
+    // Naya Status Logic: 'idle', 'ringing', 'receiving', 'connected'
+    const [callStatus, setCallStatus] = useState('idle');
+
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
+    // --- 1. PROFILE SETUP (Pehle wala function) ---
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -37,6 +41,7 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // --- 2. NOTIFICATIONS SETUP ---
     const setupNotifications = async (uid) => {
         try {
             const permission = await Notification.requestPermission();
@@ -55,15 +60,13 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // --- 3. PEERJS & CONNECTION LOGIC ---
     useEffect(() => {
         if (!user) return;
         setupNotifications(user.uid);
 
-        // --- PEERJS RECONNECT LOGIC ---
         const initializePeer = () => {
-            if (peerInstance.current) {
-                peerInstance.current.destroy();
-            }
+            if (peerInstance.current) peerInstance.current.destroy();
 
             const peer = new Peer(user.uid, {
                 debug: 2,
@@ -74,10 +77,13 @@ export const VideoProvider = ({ children }) => {
 
             peer.on('open', (id) => console.log('My Peer ID is: ' + id));
 
+            // Receiver Side Logic
             peer.on('call', (call) => {
+                setCallStatus('receiving'); // Screen par Incoming Call dikhayega
                 navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
                     if (myVideo.current) myVideo.current.srcObject = stream;
                     call.answer(stream);
+                    setCallStatus('connected'); // Answer karte hi screen divide
                     call.on('stream', (userRemoteStream) => {
                         setRemoteStream(userRemoteStream);
                         if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
@@ -85,11 +91,8 @@ export const VideoProvider = ({ children }) => {
                 }).catch(err => console.error("Failed to get local stream", err));
             });
 
-            // Agar ID taken error aaye, toh 3 second baad automatic reconnect try karega
             peer.on('error', (err) => {
-                console.error("PeerJS Error Type:", err.type);
                 if (err.type === 'unavailable-id') {
-                    console.log("ID taken, retrying connection...");
                     setTimeout(() => initializePeer(), 3000);
                 }
             });
@@ -109,8 +112,10 @@ export const VideoProvider = ({ children }) => {
         };
     }, [user]);
 
+    // --- 4. START CALL (With Full Screen Ringing Logic) ---
     const startCall = async (targetUser) => {
         try {
+            setCallStatus('ringing'); // Turant UI ko Ringing mode mein dalo
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             if (myVideo.current) myVideo.current.srcObject = stream;
 
@@ -119,6 +124,7 @@ export const VideoProvider = ({ children }) => {
 
             call.on('stream', (userRemoteStream) => {
                 setRemoteStream(userRemoteStream);
+                setCallStatus('connected'); // Dusre ne uthaya -> Screen split!
                 if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
             });
 
@@ -130,11 +136,18 @@ export const VideoProvider = ({ children }) => {
                     timestamp: serverTimestamp()
                 });
             }
-        } catch (err) { console.error("Start call failed:", err); }
+        } catch (err) {
+            setCallStatus('idle');
+            console.error("Start call failed:", err);
+        }
     };
 
-    const endCall = () => { window.location.reload(); };
+    const endCall = () => {
+        setCallStatus('idle');
+        window.location.reload();
+    };
 
+    // --- 5. SEARCH USERS (Pehle wala function) ---
     const searchUsers = async (term) => {
         const q = query(collection(db, "users"), where("username", ">=", term), where("username", "<=", term + '\uf8ff'));
         const snap = await getDocs(q);
@@ -145,7 +158,7 @@ export const VideoProvider = ({ children }) => {
         <VideoContext.Provider value={{
             userData, friends, selectedFriend, setSelectedFriend,
             searchUsers, startCall, endCall, myVideo, remoteVideo,
-            remoteStream, setupProfile
+            remoteStream, setupProfile, callStatus, setCallStatus
         }}>
             {children}
         </VideoContext.Provider>
