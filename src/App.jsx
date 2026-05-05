@@ -1,5 +1,5 @@
-import { useContext, useEffect } from 'react'; // useEffect add kiya
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'; // useLocation add kiya
+import { useContext, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 // Contexts
 import { AuthContext } from './context/AuthContext';
@@ -13,7 +13,7 @@ import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
-// Ek chota helper component jo URL parameters ko check karega
+// URL Parameter Handler
 function CallHandler() {
   const { acceptCall, incomingCall } = useContext(VideoContext);
   const location = useLocation();
@@ -22,12 +22,9 @@ function CallHandler() {
     const params = new URLSearchParams(location.search);
     const action = params.get('callAction');
 
-    // Agar URL mein 'accept' hai aur call aa rahi hai, toh auto-accept karlo
     if (action === 'accept' && incomingCall) {
       console.log("🚀 Notification se accept command mili! Call utha rahe hain...");
       acceptCall();
-
-      // Clean up: URL se 'callAction' hata do taaki refresh pe baar-baar na chale
       window.history.replaceState({}, document.title, "/");
     }
   }, [location, incomingCall, acceptCall]);
@@ -39,6 +36,8 @@ function App() {
   const { user } = useContext(AuthContext);
   const { userData, callStatus, isLoading } = useContext(VideoContext);
 
+  // 1. SPLASH SCREEN (Sabse pehla shield)
+  // Jab tak isLoading true hai, kuch bhi render nahi hoga sirf Splash dikhega
   if (isLoading) {
     return (
       <div className="h-screen bg-black flex items-center justify-center">
@@ -53,24 +52,33 @@ function App() {
 
   return (
     <Router>
-      <CallHandler /> {/* Yahan handler ko call kiya */}
+      <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
         <Routes>
+          {/* 2. AUTH ROUTE: Agar logged in ho toh Home jao, warna Auth dikhao */}
           <Route path="/auth" element={!user ? <Auth /> : <Navigate to="/" />} />
-          <Route path="/onboarding" element={user && !userData?.username ? <Onboarding /> : <Navigate to="/" />} />
 
+          {/* 3. ONBOARDING ROUTE: Sirf unke liye jinka profile incomplete hai */}
+          <Route
+            path="/onboarding"
+            element={
+              user ? (
+                userData?.username ? <Navigate to="/" /> : <Onboarding />
+              ) : <Navigate to="/auth" />
+            }
+          />
+
+          {/* 4. MAIN APP LOGIC: Ekdum strict checking */}
           <Route path="/*" element={
             user ? (
               userData?.username ? (
+                // PROFILE COMPLETE: Saara UI dikhao
                 <div className="flex flex-col h-full overflow-hidden">
                   <Navbar />
                   <div className="flex flex-1 overflow-hidden relative">
                     <Sidebar />
                     <main className="flex-1 bg-[#0b141a] relative overflow-hidden flex flex-col">
-
-                      {/* CallInterface pop-up */}
                       {callStatus !== 'idle' && <CallInterface />}
-
                       <Routes>
                         <Route path="/" element={<Home />} />
                         <Route path="/chat/:id" element={<Home />} />
@@ -78,8 +86,14 @@ function App() {
                     </main>
                   </div>
                 </div>
-              ) : <Navigate to="/onboarding" />
-            ) : <Navigate to="/auth" />
+              ) : (
+                // PROFILE INCOMPLETE: Seedha onboarding par dhakelo
+                <Navigate to="/onboarding" replace />
+              )
+            ) : (
+              // NOT LOGGED IN: Auth par jao
+              <Navigate to="/auth" replace />
+            )
           } />
         </Routes>
       </div>

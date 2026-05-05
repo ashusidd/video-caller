@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, messaging } from '../firebase';
 import { getToken } from "firebase/messaging";
-import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore'; // deleteDoc aur orderBy add kiya
+import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { AuthContext } from './AuthContext';
 
 export const VideoContext = createContext();
@@ -24,31 +24,17 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // --- NAYA CODE: 24 Hours Auto-Delete Logic ---
+    // 1. CLEANUP LOGS (Puraani history saaf karne ke liye)
     const cleanupOldLogs = async () => {
         if (!user) return;
         try {
-            // 24 ghante pehle ka time calculate karo
             const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-            // Sirf wo logs dhoondo jo purane hain
-            const q = query(
-                collection(db, "calls"),
-                where("timestamp", "<", twentyFourHoursAgo)
-            );
-
+            const q = query(collection(db, "calls"), where("timestamp", "<", twentyFourHoursAgo));
             const snapshot = await getDocs(q);
-
-            // Loop chala kar delete karo
             const deletePromises = snapshot.docs.map(document => deleteDoc(doc(db, "calls", document.id)));
             await Promise.all(deletePromises);
-
-            if (snapshot.size > 0) {
-                console.log(`🧹 DB Safai: ${snapshot.size} purane logs delete ho gaye!`);
-            }
-        } catch (error) {
-            console.error("Cleanup error:", error);
-        }
+            if (snapshot.size > 0) console.log(`🧹 DB Safai: ${snapshot.size} purane logs delete ho gaye!`);
+        } catch (error) { console.error("Cleanup error:", error); }
     };
 
     const setupProfile = async (name, username, phone) => {
@@ -86,13 +72,19 @@ export const VideoProvider = ({ children }) => {
             return;
         }
 
+        // --- BLINKING FIX START ---
+        // setIsLoading(true); // Loading ON rakhein jab tak data na mil jaye
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (d) => {
-            setUserData(d.data());
+            setUserData(d.data() || null);
+            setIsLoading(false); // Sirf tab false karein jab Firestore ka response mil jaye
+        }, (error) => {
+            console.error("Firestore error:", error);
             setIsLoading(false);
         });
+        // --- BLINKING FIX END ---
 
         setupNotifications(user.uid);
-        cleanupOldLogs(); // App khulne par purane logs saaf karo
+        cleanupOldLogs();
 
         const initializePeer = () => {
             if (peerInstance.current) peerInstance.current.destroy();
@@ -161,8 +153,6 @@ export const VideoProvider = ({ children }) => {
                 const friendData = friends.find(f => f.uid === targetUid);
                 if (friendData && friendData.fcmToken) {
                     targetToken = friendData.fcmToken;
-                } else if (selectedFriend && selectedFriend.fcmToken) {
-                    targetToken = selectedFriend.fcmToken;
                 }
             }
 
@@ -173,7 +163,8 @@ export const VideoProvider = ({ children }) => {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             token: targetToken,
-                            fromName: userData?.name || "Someone"
+                            fromName: userData?.name || "Someone",
+                            type: 'incoming' // Normal call signal
                         })
                     });
                 } catch (err) { console.error("❌ Notification request fail:", err); }
@@ -200,6 +191,25 @@ export const VideoProvider = ({ children }) => {
     };
 
     const endCall = async () => {
+        // --- MISSED CALL SIGNAL LOGIC ---
+        if (callStatus === 'ringing') {
+            const targetUid = selectedFriend?.uid || callerInfo?.uid;
+            const targetFriend = friends.find(f => f.uid === targetUid);
+            if (targetFriend?.fcmToken) {
+                try {
+                    await fetch('/api/notify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: targetFriend.fcmToken,
+                            fromName: userData?.name || "Someone",
+                            type: 'missed' // Cancel hone par missed signal bhejdo
+                        })
+                    });
+                } catch (err) { console.log("Missed signal failed"); }
+            }
+        }
+
         if (callStatus !== 'idle') {
             try {
                 const participants = [user.uid, selectedFriend?.uid || callerInfo?.uid].filter(Boolean);
@@ -213,9 +223,9 @@ export const VideoProvider = ({ children }) => {
                     type: 'video',
                     timestamp: serverTimestamp(),
                 });
-                console.log("✅ Call log saved successfully");
             } catch (err) { console.error("Log error:", err); }
         }
+
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
         if (myVideo.current?.srcObject) myVideo.current.srcObject.getTracks().forEach(track => track.stop());
@@ -239,7 +249,7 @@ export const VideoProvider = ({ children }) => {
             userData, isLoading, friends, selectedFriend, setSelectedFriend,
             searchUsers, startCall, acceptCall, endCall,
             myVideo, remoteVideo, callStatus, callerInfo,
-            setupProfile, acceptCall // acceptCall export kiya taaki App.js use kar sake
+            setupProfile
         }}>
             {children}
         </VideoContext.Provider>

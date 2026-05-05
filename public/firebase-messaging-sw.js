@@ -16,22 +16,22 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
     const isMissed = payload.data.type === 'missed';
-
     const notificationTitle = isMissed ? "⚠️ Missed V-CALL" : "📞 Incoming V-CALL HD";
+
     const notificationOptions = {
         body: isMissed ? `You missed a call from ${payload.data.fromName}` : `${payload.data.fromName} is calling you...`,
         icon: '/favicon.svg',
-        // Ye Tag purani notification ko replace karne ke liye hai
         tag: 'vcall-sync-tag',
         renotify: true,
         requireInteraction: !isMissed,
-        // Ringing pattern vs Single short vibrate for missed
+        // Professional Ringing Pattern: Vibrate 2s, Pause 1s...
         vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
         actions: isMissed ? [] : [
             { action: 'accept', title: '✅ Accept' },
             { action: 'decline', title: '❌ Decline' }
         ],
         data: {
+            // URL ko data mein save kar rahe hain taaki click handler ise use kar sake
             url: isMissed ? '/' : '/?callAction=accept'
         }
     };
@@ -40,15 +40,21 @@ messaging.onBackgroundMessage((payload) => {
 });
 
 self.addEventListener('notificationclick', function (event) {
-    event.notification.close();
-    const targetUrl = event.action === 'accept'
-        ? 'https://video-caller-lemon.vercel.app/?callAction=accept'
-        : 'https://video-caller-lemon.vercel.app/';
+    event.notification.close(); // Notification band karo
 
-    if (event.action === 'decline') return;
+    // Target URL nikalo
+    const baseUrl = 'https://video-caller-lemon.vercel.app';
+    let targetUrl = baseUrl + (event.notification.data.url || '/');
+
+    if (event.action === 'accept') {
+        targetUrl = baseUrl + '/?callAction=accept';
+    } else if (event.action === 'decline') {
+        return;
+    }
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+            // Agar site khuli hai toh focus karo
             for (let i = 0; i < windowClients.length; i++) {
                 let client = windowClients[i];
                 if (client.url.includes('video-caller-lemon.vercel.app') && 'focus' in client) {
@@ -56,6 +62,7 @@ self.addEventListener('notificationclick', function (event) {
                     return client.focus();
                 }
             }
+            // Agar band hai toh naya tab kholo
             if (clients.openWindow) return clients.openWindow(targetUrl);
         })
     );
