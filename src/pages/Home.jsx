@@ -10,11 +10,7 @@ export default function Home() {
         friends,
         setSelectedFriend,
         selectedFriend,
-        callStatus,
-        startCall,
-        myVideo,
-        remoteVideo,
-        endCall
+        startCall
     } = useContext(VideoContext);
 
     // 1. URL change hote hi friend ki details load karo
@@ -29,28 +25,7 @@ export default function Home() {
         }
     }, [id, friends, setSelectedFriend]);
 
-    // 2. AGAR CALL CHAL RAHI HAI (Video Interface)
-    if (callStatus !== 'idle') {
-        return (
-            <div className="fixed inset-0 z-[100] bg-black flex flex-col md:flex-row">
-                <div className={`relative bg-zinc-900 ${callStatus === 'connected' ? 'h-1/2 md:h-full md:w-1/2' : 'h-full w-full'}`}>
-                    <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover mirror" />
-                </div>
-                {callStatus === 'connected' && (
-                    <div className="h-1/2 md:h-full md:w-1/2 bg-zinc-800 border-l border-white/10">
-                        <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
-                    </div>
-                )}
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110]">
-                    <button onClick={endCall} className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-all">
-                        <span className="text-white text-2xl">📞</span>
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    // 3. AGAR KOI FRIEND SELECTED NAHI HAI (Default State)
+    // 2. AGAR KOI FRIEND SELECTED NAHI HAI (Default State)
     if (!id) {
         return (
             <div className="h-full w-full hidden md:flex flex-col items-center justify-center bg-[#0b141a] text-zinc-600">
@@ -63,8 +38,7 @@ export default function Home() {
         );
     }
 
-    // 4. CHAT/HISTORY VIEW (Jab Friend select ho)
-    // Yahan optional chaining use ki hai taaki white screen na aaye
+    // 3. CHAT/HISTORY VIEW (Jab Friend select ho)
     return (
         <div className="h-full w-full flex flex-col bg-[#0b141a] animate-in fade-in duration-500">
             {/* Header */}
