@@ -17,14 +17,48 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
     console.log('Call Received in Background:', payload);
 
-    const notificationTitle = "Incoming V-CALL";
+    const notificationTitle = "Incoming V-CALL 📞";
     const notificationOptions = {
-        body: `${payload.data.fromName} is calling you...`,
-        icon: '/logo192.png', // Aapka app icon yahan hona chahiye
+        body: `${payload.data.fromName || 'Someone'} is calling you...`,
+        icon: '/favicon.svg',
         tag: 'call-notification',
         renotify: true,
-        requireInteraction: true, // Jab tak user click na kare notification na jaye
+        requireInteraction: true, // Jab tak user action na le, notification nahi jayegi
+        vibrate: [200, 100, 200, 100, 200, 100, 400], // Phone vibrate karega
+        actions: [
+            { action: 'accept', title: '✅ Accept' },
+            { action: 'decline', title: '❌ Decline' }
+        ]
     };
 
     self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+self.addEventListener('notificationclick', function (event) {
+    event.notification.close();
+
+    // Query parameter add kar rahe hain taaki frontend ko pata chale ki accept dabaya hai
+    let targetUrl = 'https://video-caller-lemon.vercel.app/';
+    if (event.action === 'accept') {
+        targetUrl += '?callAction=accept';
+    } else if (event.action === 'decline') {
+        // Decline par site kholne ki zaroorat nahi
+        return;
+    }
+
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+            for (let i = 0; i < windowClients.length; i++) {
+                let client = windowClients[i];
+                if (client.url.includes('video-caller-lemon.vercel.app') && 'focus' in client) {
+                    // Agar tab khula hai toh use naye URL par bhej kar focus karo
+                    client.navigate(targetUrl);
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow(targetUrl);
+            }
+        })
+    );
 });
