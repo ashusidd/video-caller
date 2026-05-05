@@ -15,20 +15,25 @@ firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-    console.log('Call Received in Background:', payload);
+    const isMissed = payload.data.type === 'missed';
 
-    const notificationTitle = "Incoming V-CALL 📞";
+    const notificationTitle = isMissed ? "⚠️ Missed V-CALL" : "📞 Incoming V-CALL HD";
     const notificationOptions = {
-        body: `${payload.data.fromName || 'Someone'} is calling you...`,
+        body: isMissed ? `You missed a call from ${payload.data.fromName}` : `${payload.data.fromName} is calling you...`,
         icon: '/favicon.svg',
-        tag: 'call-notification',
+        // Ye Tag purani notification ko replace karne ke liye hai
+        tag: 'vcall-sync-tag',
         renotify: true,
-        requireInteraction: true, // Jab tak user action na le, notification nahi jayegi
-        vibrate: [200, 100, 200, 100, 200, 100, 400], // Phone vibrate karega
-        actions: [
+        requireInteraction: !isMissed,
+        // Ringing pattern vs Single short vibrate for missed
+        vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
+        actions: isMissed ? [] : [
             { action: 'accept', title: '✅ Accept' },
             { action: 'decline', title: '❌ Decline' }
-        ]
+        ],
+        data: {
+            url: isMissed ? '/' : '/?callAction=accept'
+        }
     };
 
     self.registration.showNotification(notificationTitle, notificationOptions);
@@ -36,29 +41,22 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
+    const targetUrl = event.action === 'accept'
+        ? 'https://video-caller-lemon.vercel.app/?callAction=accept'
+        : 'https://video-caller-lemon.vercel.app/';
 
-    // Query parameter add kar rahe hain taaki frontend ko pata chale ki accept dabaya hai
-    let targetUrl = 'https://video-caller-lemon.vercel.app/';
-    if (event.action === 'accept') {
-        targetUrl += '?callAction=accept';
-    } else if (event.action === 'decline') {
-        // Decline par site kholne ki zaroorat nahi
-        return;
-    }
+    if (event.action === 'decline') return;
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             for (let i = 0; i < windowClients.length; i++) {
                 let client = windowClients[i];
                 if (client.url.includes('video-caller-lemon.vercel.app') && 'focus' in client) {
-                    // Agar tab khula hai toh use naye URL par bhej kar focus karo
                     client.navigate(targetUrl);
                     return client.focus();
                 }
             }
-            if (clients.openWindow) {
-                return clients.openWindow(targetUrl);
-            }
+            if (clients.openWindow) return clients.openWindow(targetUrl);
         })
     );
 });
