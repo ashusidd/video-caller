@@ -19,7 +19,7 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // Profile Setup Logic[cite: 5]
+    // Profile Setup Logic
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -36,7 +36,7 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { console.error("Profile Setup failed:", err); }
     };
 
-    // Notification Setup[cite: 1, 5]
+    // Notification Setup
     const setupNotifications = async (uid) => {
         try {
             const permission = await Notification.requestPermission();
@@ -63,6 +63,7 @@ export const VideoProvider = ({ children }) => {
             peerInstance.current = peer;
 
             peer.on('call', (call) => {
+                console.log("🔔 Call aayi hai kisi ki!");
                 setCallStatus('receiving');
                 navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
                     setCallStatus('connected');
@@ -91,20 +92,35 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubUser(); unsubFriends(); if (peerInstance.current) peerInstance.current.destroy(); };
     }, [user]);
 
+    // THE FIX IS HERE IN startCall 🚀
     const startCall = async (targetUser) => {
         try {
+            // Ye check karega ki targetUser object hai ya direct ID string
+            const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
+
+            if (!targetUid) {
+                console.error("❌ Target user ki ID nahi mil rahi!");
+                return;
+            }
+
+            console.log(`📞 Call lag rahi hai: ${targetUid} ko...`);
             setCallStatus('ringing');
+
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             setTimeout(() => { if (myVideo.current) myVideo.current.srcObject = stream; }, 500);
 
-            const call = peerInstance.current.call(targetUser.uid, stream);
+            // Ab hum proper targetUid pass kar rahe hain
+            const call = peerInstance.current.call(targetUid, stream);
+
             call.on('stream', (userRemoteStream) => {
+                console.log("✅ Samne wale ne call utha li!");
                 setRemoteStream(userRemoteStream);
                 setCallStatus('connected');
                 setTimeout(() => { if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream; }, 500);
             });
 
-            if (targetUser.fcmToken) {
+            // Notification tabhi bhejo jab targetUser object ho aur fcmToken ho
+            if (typeof targetUser === 'object' && targetUser.fcmToken) {
                 await addDoc(collection(db, "notifications"), {
                     to: targetUser.fcmToken,
                     fromName: userData?.name || "Someone",
@@ -112,7 +128,10 @@ export const VideoProvider = ({ children }) => {
                     timestamp: serverTimestamp()
                 });
             }
-        } catch (err) { setCallStatus('idle'); }
+        } catch (err) {
+            console.error("Call Error:", err);
+            setCallStatus('idle');
+        }
     };
 
     const searchUsers = async (term) => {
