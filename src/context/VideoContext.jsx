@@ -126,23 +126,39 @@ export const VideoProvider = ({ children }) => {
 
             call.on('close', () => { endCall(); });
 
-            // YAHAN BADLAV HAI: Naya Vercel API Call (Push Notification ke liye)
+            // YAHAN BADLAV HAI: Smart Token Finder Logic
+            let targetToken = null;
+
             if (typeof targetUser === 'object' && targetUser.fcmToken) {
+                targetToken = targetUser.fcmToken;
+            } else if (targetUid) {
+                const friendData = friends.find(f => f.uid === targetUid);
+                if (friendData && friendData.fcmToken) {
+                    targetToken = friendData.fcmToken;
+                } else if (selectedFriend && selectedFriend.fcmToken) {
+                    targetToken = selectedFriend.fcmToken;
+                }
+            }
+
+            if (targetToken) {
                 try {
+                    console.log("✅ Token mil gaya! Vercel API ko bhej rahe hain...");
                     await fetch('/api/notify', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            token: targetUser.fcmToken,
+                            token: targetToken,
                             fromName: userData?.name || "Someone"
                         })
                     });
-                    console.log("🚀 Vercel API ko notification bhej diya!");
+                    console.log("🚀 Vercel API ne notification fire kar diya!");
                 } catch (err) {
-                    console.error("❌ Notification fail:", err);
+                    console.error("❌ Notification request fail:", err);
                 }
+            } else {
+                console.log("⚠️ Frontend ko is user ka FCM Token nahi mila.");
             }
         } catch (err) { setCallStatus('idle'); }
     };
@@ -168,21 +184,19 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { endCall(); }
     };
 
-    // YAHAN BADLAV HAI: Call History Save Karne Ka Logic (participants array ke sath)
     const endCall = async () => {
         if (callStatus !== 'idle') {
             try {
-                // Participants array banana zaroori hai taaki query kaam kare
                 const participants = [user.uid, selectedFriend?.uid || callerInfo?.uid].filter(Boolean);
 
                 await addDoc(collection(db, "calls"), {
-                    participants: participants, // Ye zaroori tha
+                    participants: participants,
                     callerId: user.uid,
                     callerName: userData?.name || "User",
                     receiverId: selectedFriend?.uid || callerInfo?.uid || "Unknown",
                     receiverName: selectedFriend?.name || callerInfo?.name || "Friend",
                     status: callStatus === 'connected' ? "completed" : "missed",
-                    type: 'video', // Taaki UI me icon dikhe
+                    type: 'video',
                     timestamp: serverTimestamp(),
                 });
                 console.log("✅ Call log saved successfully");
