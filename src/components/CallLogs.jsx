@@ -7,35 +7,58 @@ export default function CallLogs({ filterId }) {
     const { user } = useContext(AuthContext);
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null); // Error state add kiya
 
     useEffect(() => {
         if (!filterId || !user?.uid) return;
 
         setLoading(true);
-        // Query logic: Wo saari calls nikaalo jisme Current User aur selected Friend dono hon
+        setError(null);
+
+        // Query logic
         const q = query(
             collection(db, "calls"),
             where("participants", "array-contains", user.uid),
             orderBy("timestamp", "desc")
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const callData = snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() }))
-                // Sirf wahi calls filter karo jo is specific friend ke saath hain
-                .filter(log => log.participants.includes(filterId));
+        const unsubscribe = onSnapshot(q,
+            (snapshot) => {
+                const callData = snapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(log => log.participants && log.participants.includes(filterId));
 
-            setLogs(callData);
-            setLoading(false);
-        });
+                setLogs(callData);
+                setLoading(false);
+            },
+            (err) => {
+                console.error("🔥 Firestore Query Error:", err);
+                setError(err.message);
+                setLoading(false);
+            }
+        );
 
         return () => unsubscribe();
     }, [filterId, user?.uid]);
 
+    // 1. Agar koi error aaye (Index missing error yahan dikhega)
+    if (error) {
+        return (
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-center">
+                <p className="text-red-500 text-[10px] font-bold uppercase mb-2">Query Failed</p>
+                <p className="text-zinc-500 text-[9px] mb-2">{error}</p>
+                <p className="text-zinc-400 text-[9px]">Console (F12) check karo aur blue link par click karke index banao!</p>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-3">
             {loading ? (
-                <p className="text-center text-zinc-600 text-[10px] animate-pulse">Loading Logs...</p>
+                <div className="flex flex-col items-center py-10">
+                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
+                    <p className="text-zinc-600 text-[9px] font-black uppercase tracking-widest">Accessing Logs...</p>
+                </div>
             ) : logs.length > 0 ? (
                 logs.map(log => (
                     <div key={log.id} className="bg-zinc-900/30 p-3 rounded-xl border border-white/5 flex justify-between items-center group hover:bg-zinc-900/50 transition-all">
@@ -48,10 +71,10 @@ export default function CallLogs({ filterId }) {
                                     {log.callerId === user.uid ? 'Outgoing' : 'Incoming'} {log.status}
                                 </p>
                                 <p className="text-[9px] text-zinc-500 font-mono">
-                                    {log.timestamp?.toDate().toLocaleString('en-IN', {
+                                    {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString('en-IN', {
                                         dateStyle: 'medium',
                                         timeStyle: 'short'
-                                    })}
+                                    }) : 'Syncing...'}
                                 </p>
                             </div>
                         </div>

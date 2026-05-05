@@ -2,7 +2,7 @@ import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, messaging } from '../firebase';
 import { getToken } from "firebase/messaging";
-import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore'; // deleteDoc aur orderBy add kiya
 import { AuthContext } from './AuthContext';
 
 export const VideoContext = createContext();
@@ -23,6 +23,33 @@ export const VideoProvider = ({ children }) => {
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
+
+    // --- NAYA CODE: 24 Hours Auto-Delete Logic ---
+    const cleanupOldLogs = async () => {
+        if (!user) return;
+        try {
+            // 24 ghante pehle ka time calculate karo
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+            // Sirf wo logs dhoondo jo purane hain
+            const q = query(
+                collection(db, "calls"),
+                where("timestamp", "<", twentyFourHoursAgo)
+            );
+
+            const snapshot = await getDocs(q);
+
+            // Loop chala kar delete karo
+            const deletePromises = snapshot.docs.map(document => deleteDoc(doc(db, "calls", document.id)));
+            await Promise.all(deletePromises);
+
+            if (snapshot.size > 0) {
+                console.log(`🧹 DB Safai: ${snapshot.size} purane logs delete ho gaye!`);
+            }
+        } catch (error) {
+            console.error("Cleanup error:", error);
+        }
+    };
 
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
@@ -65,6 +92,7 @@ export const VideoProvider = ({ children }) => {
         });
 
         setupNotifications(user.uid);
+        cleanupOldLogs(); // App khulne par purane logs saaf karo
 
         const initializePeer = () => {
             if (peerInstance.current) peerInstance.current.destroy();
@@ -126,9 +154,7 @@ export const VideoProvider = ({ children }) => {
 
             call.on('close', () => { endCall(); });
 
-            // YAHAN BADLAV HAI: Smart Token Finder Logic
             let targetToken = null;
-
             if (typeof targetUser === 'object' && targetUser.fcmToken) {
                 targetToken = targetUser.fcmToken;
             } else if (targetUid) {
@@ -142,23 +168,15 @@ export const VideoProvider = ({ children }) => {
 
             if (targetToken) {
                 try {
-                    console.log("✅ Token mil gaya! Vercel API ko bhej rahe hain...");
                     await fetch('/api/notify', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             token: targetToken,
                             fromName: userData?.name || "Someone"
                         })
                     });
-                    console.log("🚀 Vercel API ne notification fire kar diya!");
-                } catch (err) {
-                    console.error("❌ Notification request fail:", err);
-                }
-            } else {
-                console.log("⚠️ Frontend ko is user ka FCM Token nahi mila.");
+                } catch (err) { console.error("❌ Notification request fail:", err); }
             }
         } catch (err) { setCallStatus('idle'); }
     };
@@ -169,16 +187,13 @@ export const VideoProvider = ({ children }) => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             setCallStatus('connected');
             setCurrentCall(incomingCall);
-
             setTimeout(() => {
                 if (myVideo.current) myVideo.current.srcObject = stream;
                 incomingCall.answer(stream);
-
                 incomingCall.on('stream', (userRemoteStream) => {
                     setRemoteStream(userRemoteStream);
                     if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
                 });
-
                 incomingCall.on('close', () => { endCall(); });
             }, 500);
         } catch (err) { endCall(); }
@@ -188,7 +203,6 @@ export const VideoProvider = ({ children }) => {
         if (callStatus !== 'idle') {
             try {
                 const participants = [user.uid, selectedFriend?.uid || callerInfo?.uid].filter(Boolean);
-
                 await addDoc(collection(db, "calls"), {
                     participants: participants,
                     callerId: user.uid,
@@ -202,16 +216,10 @@ export const VideoProvider = ({ children }) => {
                 console.log("✅ Call log saved successfully");
             } catch (err) { console.error("Log error:", err); }
         }
-
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
-
-        if (myVideo.current?.srcObject) {
-            myVideo.current.srcObject.getTracks().forEach(track => track.stop());
-        }
-        if (remoteVideo.current?.srcObject) {
-            remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
-        }
+        if (myVideo.current?.srcObject) myVideo.current.srcObject.getTracks().forEach(track => track.stop());
+        if (remoteVideo.current?.srcObject) remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
 
         setCallStatus('idle');
         setCurrentCall(null);
@@ -231,7 +239,7 @@ export const VideoProvider = ({ children }) => {
             userData, isLoading, friends, selectedFriend, setSelectedFriend,
             searchUsers, startCall, acceptCall, endCall,
             myVideo, remoteVideo, callStatus, callerInfo,
-            setupProfile
+            setupProfile, acceptCall // acceptCall export kiya taaki App.js use kar sake
         }}>
             {children}
         </VideoContext.Provider>
