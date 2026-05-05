@@ -110,7 +110,7 @@ export const VideoProvider = ({ children }) => {
 
             const call = peerInstance.current.call(targetUid, stream, {
                 metadata: {
-                    uid: user.uid, // Metadata mein UID bhejna zaroori hai
+                    uid: user.uid,
                     name: userData?.name || "V-CALL User",
                     photo: userData?.photo || ''
                 }
@@ -126,13 +126,23 @@ export const VideoProvider = ({ children }) => {
 
             call.on('close', () => { endCall(); });
 
+            // YAHAN BADLAV HAI: Naya Vercel API Call (Push Notification ke liye)
             if (typeof targetUser === 'object' && targetUser.fcmToken) {
-                await addDoc(collection(db, "notifications"), {
-                    to: targetUser.fcmToken,
-                    fromName: userData?.name || "Someone",
-                    type: "incoming_call",
-                    timestamp: serverTimestamp()
-                });
+                try {
+                    await fetch('/api/notify', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            token: targetUser.fcmToken,
+                            fromName: userData?.name || "Someone"
+                        })
+                    });
+                    console.log("🚀 Vercel API ko notification bhej diya!");
+                } catch (err) {
+                    console.error("❌ Notification fail:", err);
+                }
             }
         } catch (err) { setCallStatus('idle'); }
     };
@@ -158,23 +168,27 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { endCall(); }
     };
 
-    // YAHAN BADLAV HAI: Call History Save Karne Ka Logic
+    // YAHAN BADLAV HAI: Call History Save Karne Ka Logic (participants array ke sath)
     const endCall = async () => {
-        // 1. Database mein log save karo agar call active thi
         if (callStatus !== 'idle') {
             try {
+                // Participants array banana zaroori hai taaki query kaam kare
+                const participants = [user.uid, selectedFriend?.uid || callerInfo?.uid].filter(Boolean);
+
                 await addDoc(collection(db, "calls"), {
-                    callerId: currentCall?.peer || user.uid,
+                    participants: participants, // Ye zaroori tha
+                    callerId: user.uid,
                     callerName: userData?.name || "User",
                     receiverId: selectedFriend?.uid || callerInfo?.uid || "Unknown",
                     receiverName: selectedFriend?.name || callerInfo?.name || "Friend",
                     status: callStatus === 'connected' ? "completed" : "missed",
+                    type: 'video', // Taaki UI me icon dikhe
                     timestamp: serverTimestamp(),
                 });
+                console.log("✅ Call log saved successfully");
             } catch (err) { console.error("Log error:", err); }
         }
 
-        // 2. Hardware aur Streams stop karo
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
