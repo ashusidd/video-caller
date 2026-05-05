@@ -15,7 +15,8 @@ import CallInterface from './components/CallInterface';
 
 function App() {
   const { user } = useContext(AuthContext);
-  const { userData, remoteStream } = useContext(VideoContext);
+  // FIX: remoteStream hata kar callStatus nikal liya
+  const { userData, callStatus } = useContext(VideoContext);
 
   // Loading state
   if (user && userData === undefined) {
@@ -47,12 +48,13 @@ function App() {
                   <div className="flex flex-1 overflow-hidden relative">
 
                     {/* --- SIDEBAR AREA --- */}
-                    {/* Sidebar ab directly call hoga. Width aur Mobile Logic Sidebar.jsx khud sambhal raha hai */}
                     <Sidebar />
 
                     {/* --- MAIN CONTENT AREA --- */}
                     <main className="flex-1 bg-[#0b141a] relative overflow-hidden flex flex-col">
-                      {remoteStream && <CallInterface />}
+
+                      {/* THE REAL FIX: Ab CallInterface tab khulega jab bhi call active, ringing ya receiving ho */}
+                      {callStatus !== 'idle' && <CallInterface />}
 
                       <Routes>
                         <Route path="/" element={<Home />} />

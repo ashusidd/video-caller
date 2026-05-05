@@ -6,11 +6,10 @@ import { AuthProvider } from './context/AuthContext';
 import { VideoProvider } from './context/VideoContext';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <AuthProvider>
-      <VideoProvider>
-        <App />
-      </VideoProvider>
-    </AuthProvider>
-  </React.StrictMode>
+  // Yahan se <React.StrictMode> hata diya hai
+  <AuthProvider>
+    <VideoProvider>
+      <App />
+    </VideoProvider>
+  </AuthProvider>
 );

@@ -12,14 +12,18 @@ export const VideoProvider = ({ children }) => {
     const [userData, setUserData] = useState(null);
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
-    const [remoteStream, setRemoteStream] = useState(null);
-    const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'receiving', 'connected'
 
+    // Naye States - Call Handle Karne Ke Liye
+    const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'receiving', 'connected'
+    const [incomingCall, setIncomingCall] = useState(null); // Call hold par rakhne ke liye
+    const [currentCall, setCurrentCall] = useState(null); // Active call ko track karne ke liye
+    const [callerInfo, setCallerInfo] = useState(null); // Call karne wale ka naam aur photo
+
+    const [remoteStream, setRemoteStream] = useState(null);
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // Profile Setup Logic
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -36,7 +40,6 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { console.error("Profile Setup failed:", err); }
     };
 
-    // Notification Setup
     const setupNotifications = async (uid) => {
         try {
             const permission = await Notification.requestPermission();
@@ -62,19 +65,17 @@ export const VideoProvider = ({ children }) => {
             });
             peerInstance.current = peer;
 
+            // 1. JAB DUSRE KI CALL AAYE (RECEIVING)
             peer.on('call', (call) => {
-                console.log("🔔 Call aayi hai kisi ki!");
+                console.log("🔔 Call aayi hai:", call.metadata);
+                // Auto-answer hata diya, ab call state mein save hogi
+                setCallerInfo(call.metadata);
+                setIncomingCall(call);
                 setCallStatus('receiving');
-                navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-                    setCallStatus('connected');
-                    setTimeout(() => {
-                        if (myVideo.current) myVideo.current.srcObject = stream;
-                        call.answer(stream);
-                        call.on('stream', (userRemoteStream) => {
-                            setRemoteStream(userRemoteStream);
-                            if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
-                        });
-                    }, 500);
+
+                // Agar dost ne uthane se pehle hi kaat di
+                call.on('close', () => {
+                    endCall();
                 });
             });
 
@@ -92,16 +93,11 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubUser(); unsubFriends(); if (peerInstance.current) peerInstance.current.destroy(); };
     }, [user]);
 
-    // THE FIX IS HERE IN startCall 🚀
+    // 2. JAB HUM CALL LAGAYE (CALLING)
     const startCall = async (targetUser) => {
         try {
-            // Ye check karega ki targetUser object hai ya direct ID string
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
-
-            if (!targetUid) {
-                console.error("❌ Target user ki ID nahi mil rahi!");
-                return;
-            }
+            if (!targetUid) return;
 
             console.log(`📞 Call lag rahi hai: ${targetUid} ko...`);
             setCallStatus('ringing');
@@ -109,17 +105,28 @@ export const VideoProvider = ({ children }) => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             setTimeout(() => { if (myVideo.current) myVideo.current.srcObject = stream; }, 500);
 
-            // Ab hum proper targetUid pass kar rahe hain
-            const call = peerInstance.current.call(targetUid, stream);
+            // METADATA bhej rahe hain taaki dost ko humara naam/photo dikhe
+            const call = peerInstance.current.call(targetUid, stream, {
+                metadata: {
+                    name: userData?.name || "V-CALL User",
+                    photo: userData?.photo || 'https://via.placeholder.com/150'
+                }
+            });
+
+            setCurrentCall(call);
 
             call.on('stream', (userRemoteStream) => {
-                console.log("✅ Samne wale ne call utha li!");
+                console.log("✅ Dost ne call utha li!");
                 setRemoteStream(userRemoteStream);
                 setCallStatus('connected');
                 setTimeout(() => { if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream; }, 500);
             });
 
-            // Notification tabhi bhejo jab targetUser object ho aur fcmToken ho
+            // Agar dost disconnect kare
+            call.on('close', () => {
+                endCall();
+            });
+
             if (typeof targetUser === 'object' && targetUser.fcmToken) {
                 await addDoc(collection(db, "notifications"), {
                     to: targetUser.fcmToken,
@@ -134,6 +141,55 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // 3. JAB HUM HARI (GREEN) BUTTON DABAYE (ACCEPTING)
+    const acceptCall = async () => {
+        if (!incomingCall) return;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setCallStatus('connected');
+            setCurrentCall(incomingCall);
+
+            setTimeout(() => {
+                if (myVideo.current) myVideo.current.srcObject = stream;
+                incomingCall.answer(stream); // Ab jakar video share hogi
+
+                incomingCall.on('stream', (userRemoteStream) => {
+                    setRemoteStream(userRemoteStream);
+                    if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
+                });
+
+                // Agar dost beech me disconnect kare
+                incomingCall.on('close', () => {
+                    endCall();
+                });
+            }, 500);
+        } catch (err) { endCall(); }
+    };
+
+    // 4. JAB HUM LAAL (RED) BUTTON DABAYE (DISCONNECTING)
+    const endCall = () => {
+        console.log("📵 Call kaat di gayi.");
+
+        // PeerJS connection properly close karo
+        if (currentCall) currentCall.close();
+        if (incomingCall) incomingCall.close();
+
+        // Camera light band karo
+        if (myVideo.current?.srcObject) {
+            myVideo.current.srcObject.getTracks().forEach(track => track.stop());
+        }
+        if (remoteVideo.current?.srcObject) {
+            remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
+        }
+
+        // States reset karo bina page refresh kiye
+        setCallStatus('idle');
+        setCurrentCall(null);
+        setIncomingCall(null);
+        setCallerInfo(null);
+        setRemoteStream(null);
+    };
+
     const searchUsers = async (term) => {
         const q = query(collection(db, "users"), where("username", ">=", term.toLowerCase()), where("username", "<=", term.toLowerCase() + '\uf8ff'));
         const snap = await getDocs(q);
@@ -143,8 +199,9 @@ export const VideoProvider = ({ children }) => {
     return (
         <VideoContext.Provider value={{
             userData, friends, selectedFriend, setSelectedFriend,
-            searchUsers, startCall, endCall: () => { setCallStatus('idle'); window.location.reload(); },
-            myVideo, remoteVideo, callStatus, setupProfile
+            searchUsers, startCall, acceptCall, endCall,
+            myVideo, remoteVideo, callStatus, callerInfo,
+            setupProfile
         }}>
             {children}
         </VideoContext.Provider>
