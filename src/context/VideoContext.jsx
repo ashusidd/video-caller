@@ -12,9 +12,8 @@ export const VideoProvider = ({ children }) => {
     const [userData, setUserData] = useState(null);
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
-    const [isLoading, setIsLoading] = useState(true); // Flicker rokne ke liye
+    const [isLoading, setIsLoading] = useState(true);
 
-    // Call States
     const [callStatus, setCallStatus] = useState('idle');
     const [incomingCall, setIncomingCall] = useState(null);
     const [currentCall, setCurrentCall] = useState(null);
@@ -25,7 +24,6 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // Profile Setup Logic
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -42,7 +40,6 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { console.error("Profile Setup failed:", err); }
     };
 
-    // Notification Setup
     const setupNotifications = async (uid) => {
         try {
             const permission = await Notification.requestPermission();
@@ -62,15 +59,13 @@ export const VideoProvider = ({ children }) => {
             return;
         }
 
-        // 1. Listen for User Data
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (d) => {
             setUserData(d.data());
-            setIsLoading(false); // Data milte hi loading khatam
+            setIsLoading(false);
         });
 
         setupNotifications(user.uid);
 
-        // 2. Initialize PeerJS
         const initializePeer = () => {
             if (peerInstance.current) peerInstance.current.destroy();
             const peer = new Peer(user.uid, {
@@ -80,11 +75,9 @@ export const VideoProvider = ({ children }) => {
             peerInstance.current = peer;
 
             peer.on('call', (call) => {
-                console.log("🔔 Call aayi hai:", call.metadata);
                 setCallerInfo(call.metadata);
                 setIncomingCall(call);
-                setCallStatus('receiving'); // Screen par Green button dikhayega
-
+                setCallStatus('receiving');
                 call.on('close', () => { endCall(); });
             });
 
@@ -95,7 +88,6 @@ export const VideoProvider = ({ children }) => {
 
         initializePeer();
 
-        // 3. Listen for Friends
         const unsubFriends = onSnapshot(query(collection(db, "users"), where("friends", "array-contains", user.uid)), (snap) => {
             setFriends(snap.docs.map(d => d.data()));
         });
@@ -107,7 +99,6 @@ export const VideoProvider = ({ children }) => {
         };
     }, [user]);
 
-    // 4. Start Call (Caller Side)
     const startCall = async (targetUser) => {
         try {
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
@@ -119,6 +110,7 @@ export const VideoProvider = ({ children }) => {
 
             const call = peerInstance.current.call(targetUid, stream, {
                 metadata: {
+                    uid: user.uid, // Metadata mein UID bhejna zaroori hai
                     name: userData?.name || "V-CALL User",
                     photo: userData?.photo || ''
                 }
@@ -145,7 +137,6 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { setCallStatus('idle'); }
     };
 
-    // 5. Accept Call (Receiver Side)
     const acceptCall = async () => {
         if (!incomingCall) return;
         try {
@@ -167,8 +158,23 @@ export const VideoProvider = ({ children }) => {
         } catch (err) { endCall(); }
     };
 
-    // 6. End Call
-    const endCall = () => {
+    // YAHAN BADLAV HAI: Call History Save Karne Ka Logic
+    const endCall = async () => {
+        // 1. Database mein log save karo agar call active thi
+        if (callStatus !== 'idle') {
+            try {
+                await addDoc(collection(db, "calls"), {
+                    callerId: currentCall?.peer || user.uid,
+                    callerName: userData?.name || "User",
+                    receiverId: selectedFriend?.uid || callerInfo?.uid || "Unknown",
+                    receiverName: selectedFriend?.name || callerInfo?.name || "Friend",
+                    status: callStatus === 'connected' ? "completed" : "missed",
+                    timestamp: serverTimestamp(),
+                });
+            } catch (err) { console.error("Log error:", err); }
+        }
+
+        // 2. Hardware aur Streams stop karo
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
