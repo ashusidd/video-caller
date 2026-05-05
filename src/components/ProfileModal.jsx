@@ -1,104 +1,93 @@
 import { useContext, useState } from 'react';
 import { VideoContext } from '../context/VideoContext';
-import { db } from '../firebase';
+import { AuthContext } from '../context/AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase'; // Apne firebase path ke hisaab se adjust karein
 
-export default function ProfileModal() {
-    const { userData, logout } = useContext(VideoContext);
-    const [editingField, setEditingField] = useState(null);
-    const [tempValue, setTempValue] = useState('');
+export default function ProfileModal({ onClose }) {
+    const { userData, setUserData } = useContext(VideoContext);
+    const { logout } = useContext(AuthContext); // Agar auth context me logout hai
 
-    const startEditing = (field, value) => {
-        setEditingField(field);
-        setTempValue(value || '');
-    };
+    const [isEditing, setIsEditing] = useState(false);
+    const [newName, setNewName] = useState(userData?.name || '');
 
-    const handleSave = async (field) => {
-        if (!tempValue && field !== 'phone') return;
+    // Profile update handle karne ke liye
+    const handleSave = async () => {
+        if (!newName.trim()) return;
         try {
-            await updateDoc(doc(db, "users", userData.uid), {
-                [field]: field === 'username' ? tempValue.toLowerCase() : tempValue
-            });
-            setEditingField(null);
-        } catch (error) { console.error(error); }
+            const userRef = doc(db, 'users', userData.uid);
+            await updateDoc(userRef, { name: newName });
+            setUserData({ ...userData, name: newName }); // Local state update
+            setIsEditing(false);
+        } catch (error) {
+            console.error("Error updating profile", error);
+        }
     };
-
-    if (!userData) return null;
 
     return (
-        <dialog id="profile_modal" className="modal p-0 m-0 h-screen max-h-none w-screen max-w-none bg-black/60 backdrop-blur-sm transition-all duration-300">
-            {/* Main Sidebar Container */}
-            <div className="absolute right-0 top-0 h-full w-full max-w-md bg-zinc-950 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 border-l border-white/5">
+        <div className="flex flex-col bg-[#111b21]">
+            {/* Header: Photo and ID */}
+            <div className="bg-[#202c33] p-6 flex flex-col items-center justify-center border-b border-white/5">
+                <img
+                    src={userData?.photo || 'https://via.placeholder.com/150'}
+                    className="w-20 h-20 rounded-full object-cover border-4 border-[#111b21] shadow-lg mb-3"
+                    alt=""
+                />
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase tracking-widest font-mono">
+                    ID: {userData?.uid?.slice(0, 6)}...
+                </span>
+            </div>
 
-                {/* Header Section */}
-                <div className="p-8 flex items-center justify-between border-b border-white/5">
-                    <h2 className="text-2xl font-black italic uppercase tracking-tighter">My Account</h2>
-                    <form method="dialog">
-                        <button className="w-10 h-10 rounded-full bg-zinc-900 flex items-center justify-center hover:bg-zinc-800 transition-colors">✕</button>
-                    </form>
+            {/* Content Area: Edit Name & Username */}
+            <div className="p-6 space-y-5">
+                <div>
+                    <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 block">Username</label>
+                    {/* Username usually change nahi karte, isliye disabled rakha hai */}
+                    <div className="text-sm font-mono text-zinc-400 px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5 cursor-not-allowed">
+                        @{userData?.username}
+                    </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto">
-                    {/* Profile Banner */}
-                    <div className="p-10 flex flex-col items-center text-center bg-gradient-to-b from-blue-600/10 to-transparent">
-                        <div className="relative mb-6">
-                            <img
-                                src={userData.photo}
-                                className="w-32 h-32 rounded-[2.5rem] border-4 border-zinc-900 shadow-2xl object-cover"
-                                alt="profile"
+                <div>
+                    <div className="flex justify-between items-end mb-1">
+                        <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Display Name</label>
+                        {!isEditing && (
+                            <button onClick={() => setIsEditing(true)} className="text-[10px] text-blue-500 hover:text-blue-400 uppercase font-black tracking-wider">Edit</button>
+                        )}
+                    </div>
+
+                    {isEditing ? (
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                className="flex-1 bg-zinc-900 border border-blue-500/50 outline-none text-white text-sm px-3 py-2 rounded-lg"
+                                autoFocus
                             />
-                            <div className="absolute -bottom-2 -right-2 bg-blue-600 p-2 rounded-xl text-xs">✓</div>
+                            <button onClick={handleSave} className="bg-blue-600 text-white text-xs px-3 rounded-lg font-bold">SAVE</button>
                         </div>
-                        <h3 className="text-3xl font-black italic uppercase tracking-tighter">{userData.name}</h3>
-                        <p className="text-zinc-500 font-mono text-[10px] mt-1 tracking-[0.3em]">@{userData.username}</p>
-                    </div>
-
-                    {/* Edit Fields */}
-                    <div className="px-8 space-y-4">
-                        {[
-                            { label: 'Full Name', key: 'name', value: userData.name },
-                            { label: 'Unique Username', key: 'username', value: userData.username },
-                            { label: 'Phone Number', key: 'phone', value: userData.phone }
-                        ].map((item) => (
-                            <div key={item.key} className="bg-zinc-900/50 p-6 rounded-[2rem] border border-white/5 hover:border-white/10 transition-all">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{item.label}</span>
-                                    {editingField === item.key ? (
-                                        <div className="flex gap-3">
-                                            <button onClick={() => setEditingField(null)} className="text-[10px] font-bold text-red-500 uppercase">Cancel</button>
-                                            <button onClick={() => handleSave(item.key)} className="text-[10px] font-bold text-green-500 uppercase">Save</button>
-                                        </div>
-                                    ) : (
-                                        <button onClick={() => startEditing(item.key, item.value)} className="text-[9px] font-black text-blue-500 uppercase underline">Change</button>
-                                    )}
-                                </div>
-
-                                {editingField === item.key ? (
-                                    <input
-                                        className="bg-transparent w-full text-white font-bold outline-none border-b border-blue-600 pb-1"
-                                        value={tempValue}
-                                        onChange={(e) => setTempValue(e.target.value)}
-                                        autoFocus
-                                    />
-                                ) : (
-                                    <p className="font-bold text-lg italic tracking-tight">{item.value || '---'}</p>
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                    ) : (
+                        <div className="text-sm font-medium text-white px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5">
+                            {userData?.name}
+                        </div>
+                    )}
                 </div>
-
-                {/* Footer Section */}
-                <div className="p-8 border-t border-white/5 space-y-4 bg-zinc-950">
-                    <button
-                        onClick={logout}
-                        className="w-full py-5 rounded-[2rem] bg-zinc-900 hover:bg-red-600/10 hover:text-red-500 border border-white/5 transition-all font-black uppercase text-[10px] tracking-widest"
-                    >
-                        Log Out Account
-                    </button>
-                    <p className="text-center text-[9px] text-zinc-700 font-bold uppercase tracking-widest">V-CALL v1.0 • Ashraf Ali Edition</p>
+                <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 block">Phone No.</label>
+                <div className="text-sm font-mono text-zinc-400 px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5 cursor-not-allowed">
+                    {userData?.phone}
                 </div>
             </div>
-        </dialog>
+
+            {/* Footer Area: Logout */}
+            <div className="p-4 border-t border-white/5 bg-zinc-950/50">
+                <button
+                    onClick={logout}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all font-bold text-sm tracking-wide"
+                >
+                    <span>🚪</span> Logout
+                </button>
+            </div>
+        </div>
     );
 }

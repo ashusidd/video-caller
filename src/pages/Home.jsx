@@ -1,59 +1,116 @@
-import { useContext } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useContext } from 'react';
 import { VideoContext } from '../context/VideoContext';
+import CallLogs from '../components/CallLogs';
 
 export default function Home() {
-    const { callStatus, myVideo, remoteVideo, selectedFriend, startCall, endCall } = useContext(VideoContext);
+    const { id } = useParams(); // URL se friend ki ID lega
+    const navigate = useNavigate();
+    const {
+        friends,
+        setSelectedFriend,
+        selectedFriend,
+        callStatus,
+        startCall,
+        myVideo,
+        remoteVideo,
+        endCall
+    } = useContext(VideoContext);
 
-    // 1. IDLE STATE: Dashboard par Welcome ya Friend Selection
-    if (callStatus === 'idle') {
+    // 1. URL change hote hi friend ki details load karo
+    useEffect(() => {
+        if (id && friends && friends.length > 0) {
+            const foundFriend = friends.find(f => f.uid === id);
+            if (foundFriend) {
+                setSelectedFriend(foundFriend);
+            }
+        } else if (!id) {
+            setSelectedFriend(null);
+        }
+    }, [id, friends, setSelectedFriend]);
+
+    // 2. AGAR CALL CHAL RAHI HAI (Video Interface)
+    if (callStatus !== 'idle') {
         return (
-            <div className="h-full flex flex-col items-center justify-center text-center p-10 select-none">
-                {selectedFriend ? (
-                    <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
-                        <img src={selectedFriend.photo} className="w-32 h-32 rounded-[3rem] object-cover mb-8 shadow-2xl border border-white/10" alt="" />
-                        <h1 className="text-5xl font-black italic uppercase tracking-tighter mb-2">{selectedFriend.name}</h1>
-                        <p className="text-zinc-500 font-mono italic mb-10 text-xs">@{selectedFriend.username}</p>
-                        <button onClick={() => startCall(selectedFriend)} className="group flex items-center gap-6 px-12 py-6 bg-blue-600 hover:bg-blue-700 text-white rounded-[2.5rem] transition-all hover:scale-105 shadow-xl shadow-blue-600/20">
-                            <span className="text-2xl group-hover:rotate-12 transition-transform">📞</span>
-                            <span className="font-black uppercase tracking-[0.2em] text-sm">Start Interaction</span>
-                        </button>
+            <div className="fixed inset-0 z-[100] bg-black flex flex-col md:flex-row">
+                <div className={`relative bg-zinc-900 ${callStatus === 'connected' ? 'h-1/2 md:h-full md:w-1/2' : 'h-full w-full'}`}>
+                    <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover mirror" />
+                </div>
+                {callStatus === 'connected' && (
+                    <div className="h-1/2 md:h-full md:w-1/2 bg-zinc-800 border-l border-white/10">
+                        <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
                     </div>
-                ) : (
-                    <>
-                        <div className="w-32 h-32 bg-zinc-900 rounded-[3rem] flex items-center justify-center text-5xl mb-8 animate-pulse">📞</div>
-                        <h1 className="text-5xl font-black italic uppercase tracking-tighter mb-4">V-CALL HD.</h1>
-                        <p className="text-zinc-600 text-sm max-w-xs font-bold uppercase tracking-widest italic">Only High-Quality Video and Audio interactions.</p>
-                    </>
                 )}
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110]">
+                    <button onClick={endCall} className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-all">
+                        <span className="text-white text-2xl">📞</span>
+                    </button>
+                </div>
             </div>
         );
     }
 
-    // 2. ACTIVE CALL STATE: Ringing/Connected UI
+    // 3. AGAR KOI FRIEND SELECTED NAHI HAI (Default State)
+    if (!id) {
+        return (
+            <div className="h-full w-full hidden md:flex flex-col items-center justify-center bg-[#0b141a] text-zinc-600">
+                <div className="w-20 h-20 bg-zinc-900/50 rounded-full flex items-center justify-center text-3xl mb-6 opacity-20 border border-white/5">
+                    📞
+                </div>
+                <h1 className="text-xl font-black uppercase tracking-tighter italic">V-CALL HD</h1>
+                <p className="text-[10px] uppercase tracking-[0.2em] mt-2 font-bold opacity-50">Select a contact to start</p>
+            </div>
+        );
+    }
+
+    // 4. CHAT/HISTORY VIEW (Jab Friend select ho)
+    // Yahan optional chaining use ki hai taaki white screen na aaye
     return (
-        <div className="relative w-full h-full bg-black overflow-hidden flex transition-all duration-700">
-            <div className={`relative transition-all duration-700 ease-in-out bg-zinc-900 ${callStatus === 'connected' ? 'w-1/2' : 'w-full'} h-full`}>
-                <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover mirror" />
-                {(callStatus === 'ringing' || callStatus === 'receiving') && (
-                    <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center text-white backdrop-blur-sm z-10">
-                        <div className="w-20 h-20 rounded-full border-4 border-white/10 border-t-blue-600 animate-spin mb-8"></div>
-                        <h2 className="text-4xl font-black italic uppercase tracking-tighter">
-                            {callStatus === 'ringing' ? `Calling ${selectedFriend?.name}` : 'Incoming Interaction...'}
-                        </h2>
+        <div className="h-full w-full flex flex-col bg-[#0b141a] animate-in fade-in duration-500">
+            {/* Header */}
+            <div className="h-[60px] bg-[#202c33] px-4 flex items-center justify-between border-l border-white/5 shrink-0">
+                <div className="flex items-center gap-4 min-w-0">
+                    <button onClick={() => navigate('/')} className="md:hidden text-white text-2xl pr-2">←</button>
+                    <img
+                        src={selectedFriend?.photo || 'https://via.placeholder.com/150'}
+                        className="w-10 h-10 rounded-full object-cover border border-white/10"
+                        alt=""
+                    />
+                    <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-bold text-white truncate">
+                            {selectedFriend?.name || "Loading..."}
+                        </span>
+                        <span className="text-[10px] text-zinc-400 font-mono italic truncate">
+                            {selectedFriend?.username ? `@${selectedFriend.username}` : "fetching..."}
+                        </span>
                     </div>
-                )}
+                </div>
+                <button
+                    onClick={() => startCall(selectedFriend?.uid)}
+                    className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center shadow-lg shadow-blue-600/20 active:scale-90 transition-all"
+                >
+                    <span className="text-lg">📞</span>
+                </button>
             </div>
 
-            {callStatus === 'connected' && (
-                <div className="w-1/2 h-full bg-zinc-800 border-l border-white/5">
-                    <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
-                </div>
-            )}
+            {/* Logs Area */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-10 custom-scrollbar relative"
+                style={{
+                    backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")',
+                    backgroundSize: '400px',
+                    backgroundRepeat: 'repeat',
+                    backgroundBlendMode: 'overlay'
+                }}>
+                <div className="max-w-4xl mx-auto space-y-6">
+                    <div className="flex justify-center">
+                        <span className="bg-[#182229] text-zinc-500 text-[9px] px-3 py-1 rounded-md uppercase font-black tracking-[0.3em] italic border border-white/5">
+                            Encrypted Interaction Logs
+                        </span>
+                    </div>
 
-            <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50">
-                <button onClick={endCall} className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center hover:bg-red-700 hover:scale-110 transition-all shadow-2xl">
-                    <span className="text-3xl">📞</span>
-                </button>
+                    {/* Sirf tabhi render hoga jab ID available ho */}
+                    {id && <CallLogs filterId={id} />}
+                </div>
             </div>
         </div>
     );

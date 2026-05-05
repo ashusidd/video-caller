@@ -19,7 +19,7 @@ export const VideoProvider = ({ children }) => {
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
 
-    // Profile Setup Logic
+    // Profile Setup Logic[cite: 5]
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
@@ -33,11 +33,10 @@ export const VideoProvider = ({ children }) => {
                 isProfileComplete: true,
                 friends: userData?.friends || []
             }, { merge: true });
-            console.log("Profile Setup Success! ✅");
         } catch (err) { console.error("Profile Setup failed:", err); }
     };
 
-    // Notification Logic
+    // Notification Setup[cite: 1, 5]
     const setupNotifications = async (uid) => {
         try {
             const permission = await Notification.requestPermission();
@@ -47,12 +46,10 @@ export const VideoProvider = ({ children }) => {
             });
             if (token) {
                 await setDoc(doc(db, "users", uid), { fcmToken: token }, { merge: true });
-                console.log("FCM Token Updated ✅");
             }
-        } catch (err) { console.error("Notification setup failed:", err); }
+        } catch (err) { console.error("Notification failed:", err); }
     };
 
-    // PeerJS & Connection Logic with Reconnect
     useEffect(() => {
         if (!user) return;
         setupNotifications(user.uid);
@@ -64,8 +61,6 @@ export const VideoProvider = ({ children }) => {
                 config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
             });
             peerInstance.current = peer;
-
-            peer.on('open', (id) => console.log('My Peer ID is: ' + id));
 
             peer.on('call', (call) => {
                 setCallStatus('receiving');
@@ -79,7 +74,7 @@ export const VideoProvider = ({ children }) => {
                             if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
                         });
                     }, 500);
-                }).catch(err => console.error("Failed stream", err));
+                });
             });
 
             peer.on('error', (err) => {
@@ -96,26 +91,17 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubUser(); unsubFriends(); if (peerInstance.current) peerInstance.current.destroy(); };
     }, [user]);
 
-    // Start Call With Rendering Delay Fix
     const startCall = async (targetUser) => {
         try {
             setCallStatus('ringing');
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-
-            // 500ms delay taaki Home.jsx ka video element render ho sake
-            setTimeout(() => {
-                if (myVideo.current) {
-                    myVideo.current.srcObject = stream;
-                }
-            }, 500);
+            setTimeout(() => { if (myVideo.current) myVideo.current.srcObject = stream; }, 500);
 
             const call = peerInstance.current.call(targetUser.uid, stream);
             call.on('stream', (userRemoteStream) => {
                 setRemoteStream(userRemoteStream);
                 setCallStatus('connected');
-                setTimeout(() => {
-                    if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream;
-                }, 500);
+                setTimeout(() => { if (remoteVideo.current) remoteVideo.current.srcObject = userRemoteStream; }, 500);
             });
 
             if (targetUser.fcmToken) {
@@ -126,10 +112,9 @@ export const VideoProvider = ({ children }) => {
                     timestamp: serverTimestamp()
                 });
             }
-        } catch (err) { setCallStatus('idle'); console.error(err); }
+        } catch (err) { setCallStatus('idle'); }
     };
 
-    // User Search Logic
     const searchUsers = async (term) => {
         const q = query(collection(db, "users"), where("username", ">=", term.toLowerCase()), where("username", "<=", term.toLowerCase() + '\uf8ff'));
         const snap = await getDocs(q);
@@ -140,7 +125,7 @@ export const VideoProvider = ({ children }) => {
         <VideoContext.Provider value={{
             userData, friends, selectedFriend, setSelectedFriend,
             searchUsers, startCall, endCall: () => { setCallStatus('idle'); window.location.reload(); },
-            myVideo, remoteVideo, remoteStream, setupProfile, callStatus
+            myVideo, remoteVideo, callStatus, setupProfile
         }}>
             {children}
         </VideoContext.Provider>
