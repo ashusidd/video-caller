@@ -43,7 +43,7 @@ self.addEventListener('notificationclick', function (event) {
     event.notification.close(); // Notification band karo
 
     // Target URL nikalo
-    const baseUrl = 'https://video-caller-lemon.vercel.app';
+    const baseUrl = 'https://v-call-hd.vercel.app';
     let targetUrl = baseUrl + (event.notification.data.url || '/');
 
     if (event.action === 'accept') {
@@ -57,7 +57,7 @@ self.addEventListener('notificationclick', function (event) {
             // Agar site khuli hai toh focus karo
             for (let i = 0; i < windowClients.length; i++) {
                 let client = windowClients[i];
-                if (client.url.includes('video-caller-lemon.vercel.app') && 'focus' in client) {
+                if (client.url.includes('v-call-hd.vercel.app') && 'focus' in client) {
                     client.navigate(targetUrl);
                     return client.focus();
                 }
