@@ -1,5 +1,5 @@
 import { useContext, useState, useEffect } from 'react';
-import { VideoContext } from '../context/VideoContext';
+import { VideoContext } from '../context/VideoContext'; // Path apne hisaab se check kar lena
 
 export default function CallInterface() {
     const {
@@ -18,19 +18,10 @@ export default function CallInterface() {
         callTimer
     } = useContext(VideoContext);
 
-    const [isLoudspeaker, setIsLoudspeaker] = useState(true);
     const [networkSpeed, setNetworkSpeed] = useState('Excellent');
 
-    // Call Type: Video call hai ya Audio, ye metadata se decide hota hai
-    const isVideoCall = callerInfo ? callerInfo.callType === 'video' : !isCameraOff;
-
-    // --- 🔊 LOUDSPEAKER LOGIC: Digital Volume Control ---
-    useEffect(() => {
-        if (remoteVideo.current) {
-            // Loudspeaker logic: volume 1.0 (Full) or 0.3 (Low for earpiece feel)
-            remoteVideo.current.volume = isLoudspeaker ? 1.0 : 0.3;
-        }
-    }, [isLoudspeaker, callStatus]);
+    // Call Type check (Default true for caller if callerInfo is not set yet)
+    const isVideoCall = callerInfo ? callerInfo.callType === 'video' : true;
 
     // Network speed monitor (B.Tech touch for professional feel)
     useEffect(() => {
@@ -83,15 +74,15 @@ export default function CallInterface() {
     return (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
-            {/* Remote Video Stream */}
+            {/* Remote Video Stream (Dost ki screen) */}
             <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/5 flex items-center justify-center">
                 <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
 
-                {/* Placeholder: Jab friend video off kare ya audio call ho */}
-                {(!isVideoCall || (isVideoCall && isCameraOff)) && (
+                {/* Placeholder: Sirf Audio call hone par dikhega */}
+                {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img src={selectedFriend?.photo || callerInfo?.photo || 'https://via.placeholder.com/150'} className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl" />
-                        {!isVideoCall && <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">Voice Call Active</span>}
+                        <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">Voice Call Active</span>
                     </div>
                 )}
 
@@ -109,15 +100,24 @@ export default function CallInterface() {
                 )}
             </div>
 
-            {/* My Local Preview (Only for Video Calls) */}
+            {/* My Local Preview (Tumhari khud ki shakal) */}
             {isVideoCall && (
                 <div className="relative flex-1 bg-zinc-950 flex items-center justify-center border-t md:border-t-0 md:border-l border-white/5">
-                    {isCameraOff ? (
-                        <div className="w-full h-full bg-[#0b141a] flex items-center justify-center">
+
+                    {/* 🔥 THE FIX: Video tag ko delete nahi kiya, sirf CSS se hide kiya hai taaki Unmute kaam kare! */}
+                    <video
+                        ref={myVideo}
+                        autoPlay
+                        muted
+                        playsInline
+                        className={`w-full h-full object-cover scale-x-[-1] ${isCameraOff ? 'hidden' : 'block'}`}
+                    />
+
+                    {/* Camera Off hone par tumhari DP dikhegi */}
+                    {isCameraOff && (
+                        <div className="absolute inset-0 bg-[#0b141a] flex items-center justify-center">
                             <img src={userData?.photo || 'https://via.placeholder.com/150'} className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale" />
                         </div>
-                    ) : (
-                        <video ref={myVideo} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
                     )}
                 </div>
             )}
@@ -128,26 +128,17 @@ export default function CallInterface() {
                 {/* 🎙️ Mic Button (Toggle) */}
                 <button
                     onClick={toggleMic}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isMuted ? 'bg-red-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                    className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isMuted ? 'bg-red-500 text-white shadow-red-500/50' : 'bg-white/10 text-white hover:bg-white/20'}`}
                     title={isMuted ? "Unmute Mic" : "Mute Mic"}
                 >
                     {isMuted ? '🔇' : '🎙️'}
-                </button>
-
-                {/* 🔊 Loudspeaker Button (Local Switch) */}
-                <button
-                    onClick={() => setIsLoudspeaker(!isLoudspeaker)}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${!isLoudspeaker ? 'bg-zinc-700 text-zinc-400 border border-white/5' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                    title={isLoudspeaker ? "Switch to Earpiece" : "Switch to Loudspeaker"}
-                >
-                    {isLoudspeaker ? '🔊' : '🔈'}
                 </button>
 
                 {/* 📹 Camera Button (Video Call Only) */}
                 {isVideoCall && (
                     <button
                         onClick={toggleCamera}
-                        className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isCameraOff ? 'bg-red-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isCameraOff ? 'bg-red-500 text-white shadow-red-500/50' : 'bg-white/10 text-white hover:bg-white/20'}`}
                         title={isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
                     >
                         {isCameraOff ? '❌📹' : '📹'}
@@ -157,7 +148,7 @@ export default function CallInterface() {
                 {/* 📵 End Call Button */}
                 <button
                     onClick={endCall}
-                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-2xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700"
+                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-2xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700 ml-4"
                 >
                     📵
                 </button>
