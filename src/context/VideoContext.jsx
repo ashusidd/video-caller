@@ -31,12 +31,15 @@ export const VideoProvider = ({ children }) => {
     const [callTimer, setCallTimer] = useState(0);
     const timerRef = useRef(null);
 
+    // --- SOUND REFS ---
     const ringtoneAudio = useRef(new Audio('/sounds/ringtone.mp3'));
     const dialingAudio = useRef(new Audio('/sounds/dialing.mp3'));
     const endCallAudio = useRef(new Audio('/sounds/end.mp3'));
+    // Ek ref prev status yaad rakhne ke liye (End sound ke liye)
+    const prevCallStatus = useRef('idle');
 
     // ==============================================================
-    // 1. DATA FETCHING & BLINK FIX (Core Logic)
+    // 1. DATA FETCHING & BLINK FIX
     // ==============================================================
     useEffect(() => {
         if (!user) {
@@ -44,14 +47,12 @@ export const VideoProvider = ({ children }) => {
             return;
         }
 
-        // Firestore Listener: User ka data check karo
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
             if (snapshot.exists()) {
                 setUserData(snapshot.data());
             } else {
                 setUserData(null);
             }
-            // CRITICAL: Jab Firestore jawab de de, tabhi loading band karo
             setIsLoading(false);
         }, (error) => {
             console.error("Fetch error:", error);
@@ -65,22 +66,31 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 2. SIGNALING BRIDGE (Background Call Detection)
+    // 2. SIGNALING BRIDGE (Background Call & Zombie UI Fix)
     // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
 
         const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
         const unsubSignals = onSnapshot(q, (snapshot) => {
-            if (!snapshot.empty && callStatus === 'idle') {
-                const signalData = snapshot.docs[0].data();
-                setCallerInfo({
-                    uid: signalData.callerId,
-                    name: signalData.callerName,
-                    photo: signalData.callerPhoto,
-                    callType: signalData.type
-                });
-                setCallStatus('receiving');
+            if (!snapshot.empty) {
+                if (callStatus === 'idle') {
+                    const signalData = snapshot.docs[0].data();
+                    setCallerInfo({
+                        uid: signalData.callerId,
+                        name: signalData.callerName,
+                        photo: signalData.callerPhoto,
+                        callType: signalData.type
+                    });
+                    setCallStatus('receiving');
+                }
+            } else {
+                // 🔥 ZOMBIE UI FIX: Agar caller ne call cut kar di (signal delete ho gaya)
+                if (callStatus === 'receiving' || callStatus === 'ringing') {
+                    setCallStatus('idle');
+                    setCallerInfo(null); // UI saaf karo
+                    setIncomingCall(null);
+                }
             }
         });
 
@@ -88,7 +98,45 @@ export const VideoProvider = ({ children }) => {
     }, [user, callStatus, isLoading]);
 
     // ==============================================================
-    // 3. MUTE/UNMUTE SYNC (Network Track Control)
+    // 3. SOUND MANAGEMENT (Autoplay & Audio Sync)
+    // ==============================================================
+    useEffect(() => {
+        const playSound = (audio) => {
+            audio.currentTime = 0;
+            audio.play().catch(e => console.warn("Browser blocked audio autoplay:", e));
+        };
+
+        const stopAllSounds = () => {
+            ringtoneAudio.current.pause();
+            ringtoneAudio.current.currentTime = 0;
+            dialingAudio.current.pause();
+            dialingAudio.current.currentTime = 0;
+        };
+
+        if (callStatus === 'receiving') {
+            stopAllSounds();
+            ringtoneAudio.current.loop = true;
+            playSound(ringtoneAudio.current);
+        } else if (callStatus === 'ringing') {
+            stopAllSounds();
+            dialingAudio.current.loop = true;
+            playSound(dialingAudio.current);
+        } else if (callStatus === 'idle') {
+            stopAllSounds();
+            // Agar active call se idle mein aaye hain, tabhi end sound bajao
+            if (prevCallStatus.current !== 'idle') {
+                playSound(endCallAudio.current);
+            }
+        }
+
+        // Status update karo next render ke liye
+        prevCallStatus.current = callStatus;
+
+        return () => stopAllSounds(); // Cleanup
+    }, [callStatus]);
+
+    // ==============================================================
+    // 4. MUTE/UNMUTE SYNC
     // ==============================================================
     const toggleMic = () => {
         if (myVideo.current?.srcObject) {
@@ -124,7 +172,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 4. CALL LOGIC (Start, Accept, End)
+    // 5. CALL LOGIC (Start, Accept, End)
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -188,11 +236,12 @@ export const VideoProvider = ({ children }) => {
         setCallStatus('idle');
         setCurrentCall(null);
         setIncomingCall(null);
+        setCallerInfo(null); // 🔥 ZOMBIE UI FIX: Data clear karna zaroori tha
         setIsMuted(false);
         setIsCameraOff(false);
     };
 
-    // Presence & Initialization (Same as before)
+    // Presence & Initialization
     useEffect(() => {
         if (!user) return;
         const userStatusRef = ref(rtdb, `/status/${user.uid}`);
