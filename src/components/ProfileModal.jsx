@@ -2,22 +2,21 @@ import { useContext, useState } from 'react';
 import { VideoContext } from '../context/VideoContext';
 import { AuthContext } from '../context/AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase'; // Apne firebase path ke hisaab se adjust karein
+import { db } from '../firebase';
 
 export default function ProfileModal({ onClose }) {
     const { userData, setUserData } = useContext(VideoContext);
-    const { logout } = useContext(AuthContext); // Agar auth context me logout hai
+    const { logout } = useContext(AuthContext);
 
     const [isEditing, setIsEditing] = useState(false);
     const [newName, setNewName] = useState(userData?.name || '');
 
-    // Profile update handle karne ke liye
     const handleSave = async () => {
         if (!newName.trim()) return;
         try {
             const userRef = doc(db, 'users', userData.uid);
             await updateDoc(userRef, { name: newName });
-            setUserData({ ...userData, name: newName }); // Local state update
+            setUserData({ ...userData, name: newName });
             setIsEditing(false);
         } catch (error) {
             console.error("Error updating profile", error);
@@ -25,7 +24,7 @@ export default function ProfileModal({ onClose }) {
     };
 
     return (
-        <div className="flex flex-col bg-[#111b21]">
+        <div className="flex flex-col bg-[#111b21] animate-in fade-in zoom-in duration-300">
             {/* Header: Photo and ID */}
             <div className="bg-[#202c33] p-6 flex flex-col items-center justify-center border-b border-white/5">
                 <img
@@ -42,7 +41,6 @@ export default function ProfileModal({ onClose }) {
             <div className="p-6 space-y-5">
                 <div>
                     <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 block">Username</label>
-                    {/* Username usually change nahi karte, isliye disabled rakha hai */}
                     <div className="text-sm font-mono text-zinc-400 px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5 cursor-not-allowed">
                         @{userData?.username}
                     </div>
@@ -73,20 +71,28 @@ export default function ProfileModal({ onClose }) {
                         </div>
                     )}
                 </div>
-                <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 block">Phone No.</label>
-                <div className="text-sm font-mono text-zinc-400 px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5 cursor-not-allowed">
-                    {userData?.phone}
+
+                <div>
+                    <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1 block">Phone No.</label>
+                    <div className="text-sm font-mono text-zinc-400 px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5 cursor-not-allowed">
+                        {userData?.phone || "Not Linked"}
+                    </div>
                 </div>
             </div>
 
-            {/* Footer Area: Logout */}
-            <div className="p-4 border-t border-white/5 bg-zinc-950/50">
+            {/* Footer Area: Logout & COPYRIGHT */}
+            <div className="p-4 border-t border-white/5 bg-zinc-950/50 flex flex-col items-center gap-4">
                 <button
                     onClick={logout}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-red-500 bg-red-500/10 hover:bg-red-500/20 transition-all font-bold text-sm tracking-wide"
                 >
                     <span>🚪</span> Logout
                 </button>
+
+                {/* --- ASHU BRANDING --- */}
+                <span className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.4em] italic opacity-50">
+                    ashu 2026 version 1.0
+                </span>
             </div>
         </div>
     );

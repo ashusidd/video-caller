@@ -1,15 +1,16 @@
 import { useState, useContext } from 'react';
 import { VideoContext } from '../context/VideoContext';
 
-// Aapke components
+// Components
 import AddFriend from './AddFriend';
 import FriendRequest from './FriendRequest';
 import ProfileModal from './ProfileModal';
 
 export default function Navbar() {
-    const { userData } = useContext(VideoContext);
+    // Context se requestCount nikaala
+    const { userData, requestCount } = useContext(VideoContext);
 
-    // Konsa full-screen page kholna hai uska state
+    // Modal state
     const [activeModal, setActiveModal] = useState(null);
 
     const toggleModal = (modalName) => {
@@ -19,12 +20,11 @@ export default function Navbar() {
     return (
         <>
             {/* --- 1. FIXED TOP NAVBAR --- */}
-            {/* Ye hamesha upar fix rahega aur niche ka content scroll hoga */}
             <nav className="h-[65px] bg-[#202c33] px-4 md:px-6 flex items-center justify-between border-b border-white/5 shrink-0 relative z-50 shadow-sm">
 
                 {/* Brand Logo */}
                 <div className="flex items-center gap-3">
-                    <span className="text-white font-black text-xl tracking-widest italic">V-CALL HD</span>
+                    <span className="text-white font-black text-xl tracking-widest italic uppercase">V-CALL HD</span>
                 </div>
 
                 {/* Action Buttons */}
@@ -39,15 +39,19 @@ export default function Navbar() {
                         ➕
                     </button>
 
-                    {/* Friend Requests Button */}
+                    {/* Friend Requests Button (Dynamic Count) */}
                     <button
                         onClick={() => toggleModal('requests')}
                         className={`relative transition-all text-xl hover:scale-110 active:scale-95 ${activeModal === 'requests' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}
                         title="Friend Requests"
                     >
                         🔔
-                        {/* Notification Dot */}
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border-2 border-[#202c33]"></span>
+                        {/* Notification Badge: Sirf tabhi render hoga jab count 0 se zyada ho */}
+                        {requestCount > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#202c33] animate-in zoom-in duration-300">
+                                {requestCount}
+                            </span>
+                        )}
                     </button>
 
                     {/* Profile Avatar Button */}
@@ -65,11 +69,11 @@ export default function Navbar() {
                 </div>
             </nav>
 
-            {/* --- 2. FULL SCREEN MODALS (WhatsApp Style) --- */}
+            {/* --- 2. FULL SCREEN MODALS --- */}
             {activeModal && (
                 <div className="fixed inset-0 z-[100] bg-[#0b141a] flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-300">
 
-                    {/* Modal Header with BACK Button */}
+                    {/* Modal Header */}
                     <div className="h-[65px] bg-[#202c33] px-4 flex items-center gap-4 border-b border-white/5 shrink-0 shadow-md">
                         <button
                             onClick={() => setActiveModal(null)}
@@ -84,16 +88,14 @@ export default function Navbar() {
                         </h2>
                     </div>
 
-                    {/* Modal Content Area */}
+                    {/* Modal Content */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#0b141a]">
-                        {/* PC par max-width set ki hai taaki ajeeb na lage, Mobile par full width lega */}
                         <div className="max-w-xl mx-auto w-full p-4 md:p-8">
                             {activeModal === 'add' && <AddFriend />}
                             {activeModal === 'requests' && <FriendRequest />}
                             {activeModal === 'profile' && <ProfileModal onClose={() => setActiveModal(null)} />}
                         </div>
                     </div>
-
                 </div>
             )}
         </>
