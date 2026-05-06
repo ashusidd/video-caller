@@ -1,7 +1,7 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, messaging, rtdb } from '../firebase';
-import { doc, onSnapshot, setDoc, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 
@@ -13,14 +13,17 @@ export const VideoProvider = ({ children }) => {
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
 
+    // --- Loading & Notifications ---
     const [isLoading, setIsLoading] = useState(true);
     const [requestCount, setRequestCount] = useState(0);
 
-    const [callStatus, setCallStatus] = useState('idle');
+    // --- Call States ---
+    const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'receiving', 'connected'
     const [incomingCall, setIncomingCall] = useState(null);
     const [currentCall, setCurrentCall] = useState(null);
     const [callerInfo, setCallerInfo] = useState(null);
 
+    // --- Media Refs ---
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
@@ -28,19 +31,25 @@ export const VideoProvider = ({ children }) => {
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
 
-    // 🔥 TIMER REFS
+    // --- Timer Refs ---
     const [callTimer, setCallTimer] = useState(0);
     const timerRef = useRef(null);
 
+    // --- State Blockers (To prevent UI glitches) ---
+    const callStatusRef = useRef(callStatus);
     const isConnectingRef = useRef(false);
 
+    // --- Sound Refs ---
     const ringtoneAudio = useRef(new Audio('/sounds/ringtone.mp3'));
     const dialingAudio = useRef(new Audio('/sounds/dialing.mp3'));
     const endCallAudio = useRef(new Audio('/sounds/end.mp3'));
     const prevCallStatus = useRef('idle');
 
+    // Keep call status updated in ref for the listener
+    useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
+
     // ==============================================================
-    // 1. DATA FETCHING
+    // 1. DATA FETCHING (User & Friends)
     // ==============================================================
     useEffect(() => {
         if (!user) {
@@ -63,15 +72,17 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 2. SIGNALING BRIDGE
+    // 2. SIGNALING BRIDGE (Fixes Zombie UI)
     // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
 
         const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
         const unsubSignals = onSnapshot(q, (snapshot) => {
+            const currentStatus = callStatusRef.current;
+
             if (!snapshot.empty) {
-                if (callStatus === 'idle') {
+                if (currentStatus === 'idle') {
                     const signalData = snapshot.docs[0].data();
                     setCallerInfo({
                         uid: signalData.callerId,
@@ -82,7 +93,8 @@ export const VideoProvider = ({ children }) => {
                     setCallStatus('receiving');
                 }
             } else {
-                if (callStatus === 'receiving' && !isConnectingRef.current) {
+                // Wipe UI only if receiving and NOT currently accepting the call
+                if (currentStatus === 'receiving' && !isConnectingRef.current) {
                     setCallStatus('idle');
                     setCallerInfo(null);
                     setIncomingCall(null);
@@ -91,7 +103,7 @@ export const VideoProvider = ({ children }) => {
         });
 
         return () => unsubSignals();
-    }, [user, callStatus, isLoading]);
+    }, [user, isLoading]);
 
     // ==============================================================
     // 3. SOUND MANAGEMENT
@@ -127,26 +139,22 @@ export const VideoProvider = ({ children }) => {
     }, [callStatus]);
 
     // ==============================================================
-    // 🌟 NEW: CALL TIMER LOGIC
+    // 4. CALL TIMER LOGIC
     // ==============================================================
     useEffect(() => {
         if (callStatus === 'connected') {
-            // Timer chalu karo
             timerRef.current = setInterval(() => {
                 setCallTimer((prev) => prev + 1);
             }, 1000);
         } else {
-            // Timer roko aur reset karo
             clearInterval(timerRef.current);
-            if (callStatus === 'idle') {
-                setCallTimer(0);
-            }
+            if (callStatus === 'idle') setCallTimer(0);
         }
         return () => clearInterval(timerRef.current);
     }, [callStatus]);
 
     // ==============================================================
-    // 4. MUTE/UNMUTE SYNC
+    // 5. MUTE/UNMUTE SYNC
     // ==============================================================
     const toggleMic = () => {
         if (myVideo.current?.srcObject) {
@@ -182,23 +190,38 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC
+    // 6. CALL LOGIC (Start, Accept, End)
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
             setCallStatus('ringing');
+
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
             if (myVideo.current) myVideo.current.srcObject = stream;
 
+            // 1. Send Signaling Data (For Frontend UI)
             await addDoc(collection(db, "signals"), {
                 callerId: user.uid,
                 callerName: userData?.name || "User",
+                callerPhoto: userData?.photo || "",
                 receiverId: targetUid,
                 type: isVideo ? 'video' : 'audio',
                 timestamp: serverTimestamp()
             });
 
+            // 2. 🔥 Send Push Notification (For Background Wake-up)
+            await addDoc(collection(db, "notifications"), {
+                senderId: user.uid,
+                senderName: userData?.name || "User",
+                receiverId: targetUid,
+                type: "call",
+                message: isVideo ? "Incoming Video Call..." : "Incoming Audio Call...",
+                timestamp: serverTimestamp(),
+                status: "unread"
+            });
+
+            // 3. Init Peer Call
             const call = peerInstance.current.call(targetUid, stream, {
                 metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
             });
@@ -210,10 +233,11 @@ export const VideoProvider = ({ children }) => {
                 setCallStatus('connected');
                 if (remoteVideo.current) remoteVideo.current.srcObject = remStream;
             });
-
-            // Caller side close listener
             call.on('close', () => endCall());
-        } catch (err) { setCallStatus('idle'); }
+        } catch (err) {
+            console.error("Call initialization failed:", err);
+            setCallStatus('idle');
+        }
     };
 
     const acceptCall = async () => {
@@ -224,6 +248,7 @@ export const VideoProvider = ({ children }) => {
 
             setCallStatus('connected');
 
+            // Delete incoming signal
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
             snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
@@ -235,13 +260,7 @@ export const VideoProvider = ({ children }) => {
                 incomingCall.on('stream', (remStream) => {
                     if (remoteVideo.current) remoteVideo.current.srcObject = remStream;
                 });
-
-                // 🔥 FIX: RECEIVER ZOMBIE UI FIX
-                // Pehle receiver ko pata hi nahi chalta tha ki call cut ho gayi hai
-                incomingCall.on('close', () => {
-                    console.log("Call closed by peer");
-                    endCall();
-                });
+                incomingCall.on('close', () => endCall()); // 🔥 Fixes Receiver Zombie UI
             }
 
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
@@ -254,16 +273,25 @@ export const VideoProvider = ({ children }) => {
     const endCall = async () => {
         isConnectingRef.current = false;
 
-        const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-        const snap = await getDocs(q);
-        snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+        // 🔥 THE PHANTOM CALL FIX: Delete BOTH incoming and outgoing signals
+        try {
+            const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
+            const snapIncoming = await getDocs(qIncoming);
+            snapIncoming.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
 
-        // PeerJS connections close karo
+            const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
+            const snapOutgoing = await getDocs(qOutgoing);
+            snapOutgoing.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+        } catch (error) {
+            console.error("Signal cleanup failed:", error);
+        }
+
+        // Close Connections
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
         if (myVideo.current?.srcObject) myVideo.current.srcObject.getTracks().forEach(t => t.stop());
 
-        // Sab reset karo
+        // Reset All States
         setCallStatus('idle');
         setCurrentCall(null);
         setIncomingCall(null);
@@ -273,7 +301,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 6. PEER & PRESENCE INIT
+    // 7. PEER & PRESENCE INIT
     // ==============================================================
     useEffect(() => {
         if (!user) return;
@@ -287,10 +315,18 @@ export const VideoProvider = ({ children }) => {
 
         const peer = new Peer(user.uid, { debug: 2, config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] } });
         peerInstance.current = peer;
-        peer.on('call', (call) => {
-            setCallerInfo(call.metadata);
-            setIncomingCall(call);
-            setCallStatus('receiving');
+
+        peer.on('call', async (call) => {
+            // Double-check if signal actually exists before ringing (Security layer)
+            const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+                setCallerInfo(call.metadata);
+                setIncomingCall(call);
+                setCallStatus('receiving');
+            } else {
+                call.close();
+            }
         });
 
         const unsubFriends = onSnapshot(query(collection(db, "users"), where("friends", "array-contains", user.uid)), (snap) => {
