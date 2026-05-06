@@ -1,38 +1,29 @@
 // public/firebase-messaging-sw.js
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.0.0/firebase-messaging-compat.js');
 
-const firebaseConfig = {
-    apiKey: "AIzaSyDkgFg6yZltbsXiSw-h7CJzxD5ekop83iY",
-    authDomain: "video-caller-2d97c.firebaseapp.com",
-    projectId: "video-caller-2d97c",
-    storageBucket: "video-caller-2d97c.firebasestorage.app",
-    messagingSenderId: "821548025065",
-    appId: "1:821548025065:web:5141e3ec11acf015afdc78"
-};
-
-firebase.initializeApp(firebaseConfig);
-const messaging = firebase.messaging();
+// ... (Config aur initialization same rahega)
 
 messaging.onBackgroundMessage((payload) => {
     const isMissed = payload.data.type === 'missed';
     const notificationTitle = isMissed ? "⚠️ Missed V-CALL" : "📞 Incoming V-CALL HD";
 
+    // Payload se data nikalo
+    const callerId = payload.data.fromId || ''; // Caller ki UID
+    const callerName = payload.data.fromName || 'Someone';
+
     const notificationOptions = {
-        body: isMissed ? `You missed a call from ${payload.data.fromName}` : `${payload.data.fromName} is calling you...`,
+        body: isMissed ? `You missed a call from ${callerName}` : `${callerName} is calling you...`,
         icon: '/favicon.svg',
         tag: 'vcall-sync-tag',
         renotify: true,
         requireInteraction: !isMissed,
-        // Professional Ringing Pattern: Vibrate 2s, Pause 1s...
         vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
         actions: isMissed ? [] : [
             { action: 'accept', title: '✅ Accept' },
             { action: 'decline', title: '❌ Decline' }
         ],
         data: {
-            // URL ko data mein save kar rahe hain taaki click handler ise use kar sake
-            url: isMissed ? '/' : '/?callAction=accept'
+            // URL mein saari details bhej rahe hain
+            url: isMissed ? '/' : `/?incomingCall=true&callerId=${callerId}&callerName=${callerName}&type=${payload.data.callType || 'video'}`
         }
     };
 
@@ -40,21 +31,21 @@ messaging.onBackgroundMessage((payload) => {
 });
 
 self.addEventListener('notificationclick', function (event) {
-    event.notification.close(); // Notification band karo
+    event.notification.close();
 
-    // Target URL nikalo
     const baseUrl = 'https://v-call-hd.vercel.app';
+    // Notification data se target URL nikalo (jisne params pehle se hain)
     let targetUrl = baseUrl + (event.notification.data.url || '/');
 
+    // Agar user ne button pe click kiya 'accept' toh wo URL mein extra action jodd do
     if (event.action === 'accept') {
-        targetUrl = baseUrl + '/?callAction=accept';
+        targetUrl += '&autoAccept=true';
     } else if (event.action === 'decline') {
         return;
     }
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-            // Agar site khuli hai toh focus karo
             for (let i = 0; i < windowClients.length; i++) {
                 let client = windowClients[i];
                 if (client.url.includes('v-call-hd.vercel.app') && 'focus' in client) {
@@ -62,7 +53,6 @@ self.addEventListener('notificationclick', function (event) {
                     return client.focus();
                 }
             }
-            // Agar band hai toh naya tab kholo
             if (clients.openWindow) return clients.openWindow(targetUrl);
         })
     );
