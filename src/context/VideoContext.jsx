@@ -13,11 +13,11 @@ export const VideoProvider = ({ children }) => {
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
 
-    // --- BLINK FIX: Initial state hamesha loading rahegi ---
+    // --- BLINK & LOADING FIX ---
     const [isLoading, setIsLoading] = useState(true);
     const [requestCount, setRequestCount] = useState(0);
 
-    const [callStatus, setCallStatus] = useState('idle');
+    const [callStatus, setCallStatus] = useState('idle'); // 'idle', 'ringing', 'receiving', 'connected'
     const [incomingCall, setIncomingCall] = useState(null);
     const [currentCall, setCurrentCall] = useState(null);
     const [callerInfo, setCallerInfo] = useState(null);
@@ -31,15 +31,17 @@ export const VideoProvider = ({ children }) => {
     const [callTimer, setCallTimer] = useState(0);
     const timerRef = useRef(null);
 
+    // 🔥 FIX 1: RACE CONDITION BLOCKER
+    const isConnectingRef = useRef(false);
+
     // --- SOUND REFS ---
     const ringtoneAudio = useRef(new Audio('/sounds/ringtone.mp3'));
     const dialingAudio = useRef(new Audio('/sounds/dialing.mp3'));
     const endCallAudio = useRef(new Audio('/sounds/end.mp3'));
-    // Ek ref prev status yaad rakhne ke liye (End sound ke liye)
     const prevCallStatus = useRef('idle');
 
     // ==============================================================
-    // 1. DATA FETCHING & BLINK FIX
+    // 1. DATA FETCHING (Anti-Blink)
     // ==============================================================
     useEffect(() => {
         if (!user) {
@@ -66,7 +68,7 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 2. SIGNALING BRIDGE (Background Call & Zombie UI Fix)
+    // 2. SIGNALING BRIDGE (Zombie UI & UI Hide/Seek Fix)
     // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
@@ -74,6 +76,7 @@ export const VideoProvider = ({ children }) => {
         const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
         const unsubSignals = onSnapshot(q, (snapshot) => {
             if (!snapshot.empty) {
+                // Call Aa Rahi Hai
                 if (callStatus === 'idle') {
                     const signalData = snapshot.docs[0].data();
                     setCallerInfo({
@@ -85,10 +88,11 @@ export const VideoProvider = ({ children }) => {
                     setCallStatus('receiving');
                 }
             } else {
-                // 🔥 ZOMBIE UI FIX: Agar caller ne call cut kar di (signal delete ho gaya)
-                if (callStatus === 'receiving' || callStatus === 'ringing') {
+                // 🔥 FIX 2: Sirf 'receiving' wale ka UI clear hoga, wo bhi tab jab wo connect NAHI ho raha ho.
+                // Isse Caller (ringing) ka UI kabhi gayab nahi hoga!
+                if (callStatus === 'receiving' && !isConnectingRef.current) {
                     setCallStatus('idle');
-                    setCallerInfo(null); // UI saaf karo
+                    setCallerInfo(null);
                     setIncomingCall(null);
                 }
             }
@@ -98,12 +102,12 @@ export const VideoProvider = ({ children }) => {
     }, [user, callStatus, isLoading]);
 
     // ==============================================================
-    // 3. SOUND MANAGEMENT (Autoplay & Audio Sync)
+    // 3. SOUND MANAGEMENT
     // ==============================================================
     useEffect(() => {
         const playSound = (audio) => {
             audio.currentTime = 0;
-            audio.play().catch(e => console.warn("Browser blocked audio autoplay:", e));
+            audio.play().catch(e => console.warn("Autoplay blocked:", e));
         };
 
         const stopAllSounds = () => {
@@ -123,20 +127,17 @@ export const VideoProvider = ({ children }) => {
             playSound(dialingAudio.current);
         } else if (callStatus === 'idle') {
             stopAllSounds();
-            // Agar active call se idle mein aaye hain, tabhi end sound bajao
             if (prevCallStatus.current !== 'idle') {
                 playSound(endCallAudio.current);
             }
         }
 
-        // Status update karo next render ke liye
         prevCallStatus.current = callStatus;
-
-        return () => stopAllSounds(); // Cleanup
+        return () => stopAllSounds();
     }, [callStatus]);
 
     // ==============================================================
-    // 4. MUTE/UNMUTE SYNC
+    // 4. MUTE/UNMUTE SYNC (WebRTC getSenders)
     // ==============================================================
     const toggleMic = () => {
         if (myVideo.current?.srcObject) {
@@ -172,7 +173,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC (Start, Accept, End)
+    // 5. CALL LOGIC
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -206,14 +207,19 @@ export const VideoProvider = ({ children }) => {
 
     const acceptCall = async () => {
         try {
+            // 🔥 Blocker ON: Signal delete hone par UI idle nahi hoga
+            isConnectingRef.current = true;
+
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
 
+            setCallStatus('connected');
+
+            // Signal Delete karo (taaki dusre devices pe ring band ho)
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
             snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
 
-            setCallStatus('connected');
             if (myVideo.current) myVideo.current.srcObject = stream;
             if (incomingCall) {
                 incomingCall.answer(stream);
@@ -221,10 +227,20 @@ export const VideoProvider = ({ children }) => {
                     if (remoteVideo.current) remoteVideo.current.srcObject = remStream;
                 });
             }
-        } catch (err) { endCall(); }
+
+            // Connection stable hone ke baad blocker hata do
+            setTimeout(() => { isConnectingRef.current = false; }, 2000);
+
+        } catch (err) {
+            isConnectingRef.current = false;
+            endCall();
+        }
     };
 
     const endCall = async () => {
+        // Blocker reset
+        isConnectingRef.current = false;
+
         const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
         const snap = await getDocs(q);
         snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
@@ -236,12 +252,14 @@ export const VideoProvider = ({ children }) => {
         setCallStatus('idle');
         setCurrentCall(null);
         setIncomingCall(null);
-        setCallerInfo(null); // 🔥 ZOMBIE UI FIX: Data clear karna zaroori tha
+        setCallerInfo(null); // Zombie UI clear
         setIsMuted(false);
         setIsCameraOff(false);
     };
 
-    // Presence & Initialization
+    // ==============================================================
+    // 6. PEER & PRESENCE INIT
+    // ==============================================================
     useEffect(() => {
         if (!user) return;
         const userStatusRef = ref(rtdb, `/status/${user.uid}`);
