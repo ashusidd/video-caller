@@ -1,13 +1,14 @@
 import { useEffect, useState, useContext } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+// 🔥 IMPORT MEIN 'deleteDoc' AUR 'doc' ADD KIYA HAI
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { AuthContext } from '../context/AuthContext';
 
 export default function CallLogs({ filterId }) {
     const { user } = useContext(AuthContext);
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null); // Error state add kiya
+    const [error, setError] = useState(null);
 
     useEffect(() => {
         if (!filterId || !user?.uid) return;
@@ -24,11 +25,29 @@ export default function CallLogs({ filterId }) {
 
         const unsubscribe = onSnapshot(q,
             (snapshot) => {
-                const callData = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() }))
-                    .filter(log => log.participants && log.participants.includes(filterId));
+                // 🔥 THE 24-HOUR FIX: Aaj se theek 24 ghante pehle ka time
+                const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                const validLogs = [];
 
-                setLogs(callData);
+                snapshot.docs.forEach(docSnap => {
+                    const data = docSnap.data();
+
+                    // Agar timestamp fetch nahi hua toh current time maan lo (error se bachne ke liye)
+                    const logTime = data.timestamp?.toDate ? data.timestamp.toDate() : new Date();
+
+                    // Agar log 24 ghante se purana hai -> Usko DATABASE SE UDA DO! 🗑️
+                    if (logTime < twentyFourHoursAgo) {
+                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("Purana log delete nahi hua:", err));
+                    }
+                    // Agar naya log hai -> Usko UI mein dikhane ke liye array mein daal do
+                    else {
+                        if (data.participants && data.participants.includes(filterId)) {
+                            validLogs.push({ id: docSnap.id, ...data });
+                        }
+                    }
+                });
+
+                setLogs(validLogs);
                 setLoading(false);
             },
             (err) => {

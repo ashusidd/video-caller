@@ -193,6 +193,13 @@ export const VideoProvider = ({ children }) => {
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
             setCallStatus('ringing');
 
+            // 🔥 THE FIX: Caller ki UI ko batao ki Audio call lag rahi hai ya Video!
+            setCallerInfo({
+                uid: targetUid,
+                name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"),
+                callType: isVideo ? 'video' : 'audio'
+            });
+
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
 
             if (myVideo.current) {

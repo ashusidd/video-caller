@@ -1,5 +1,5 @@
 import { useContext, useState, useEffect } from 'react';
-import { VideoContext } from '../context/VideoContext'; // Path apne hisaab se check kar lena
+import { VideoContext } from '../context/VideoContext';
 
 export default function CallInterface() {
     const {
@@ -20,10 +20,10 @@ export default function CallInterface() {
 
     const [networkSpeed, setNetworkSpeed] = useState('Excellent');
 
-    // Call Type check (Default true for caller if callerInfo is not set yet)
-    const isVideoCall = callerInfo ? callerInfo.callType === 'video' : true;
+    // 🔥 FIX 1: Strict Check for Video Call
+    const isVideoCall = callerInfo?.callType === 'video';
 
-    // Network speed monitor (B.Tech touch for professional feel)
+    // Network speed monitor
     useEffect(() => {
         if (callStatus === 'connected') {
             const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -61,7 +61,11 @@ export default function CallInterface() {
                 <h2 className="text-4xl font-black text-white italic mb-2 tracking-tighter z-10">{callerInfo?.name || 'Someone'}</h2>
                 <p className="text-blue-500 font-mono tracking-[0.3em] uppercase text-[10px] mb-16 animate-pulse z-10">Incoming {isAudioCall ? 'Audio' : 'Video'} Call...</p>
                 <div className="flex gap-14 z-10">
-                    <button onClick={endCall} className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center text-4xl active:scale-90 transition-transform shadow-lg shadow-red-900/20">❌</button>
+                    {/* Call Reject (Rotated Phone) */}
+                    <button onClick={endCall} className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center text-4xl active:scale-90 transition-transform shadow-lg shadow-red-900/20">
+                        <span className="inline-block rotate-[135deg]">📞</span>
+                    </button>
+                    {/* Call Accept */}
                     <button onClick={acceptCall} className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-4xl animate-bounce active:scale-90 transition-transform shadow-lg shadow-green-900/20">
                         {isAudioCall ? '📞' : '📹'}
                     </button>
@@ -78,7 +82,7 @@ export default function CallInterface() {
             <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/5 flex items-center justify-center">
                 <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
 
-                {/* Placeholder: Sirf Audio call hone par dikhega */}
+                {/* Placeholder: Jab Audio Call ho */}
                 {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img src={selectedFriend?.photo || callerInfo?.photo || 'https://via.placeholder.com/150'} className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl" />
@@ -100,57 +104,57 @@ export default function CallInterface() {
                 )}
             </div>
 
-            {/* My Local Preview (Tumhari khud ki shakal) */}
-            {isVideoCall && (
-                <div className="relative flex-1 bg-zinc-950 flex items-center justify-center border-t md:border-t-0 md:border-l border-white/5">
+            {/* 🔥 FIX 2: THE ROOT CAUSE OF MUTE BUG */}
+            <div className={`relative bg-zinc-950 items-center justify-center border-t md:border-t-0 md:border-l border-white/5 ${isVideoCall ? 'flex flex-1' : 'hidden'}`}>
+                <video
+                    ref={myVideo}
+                    autoPlay
+                    muted
+                    playsInline
+                    className={`w-full h-full object-cover scale-x-[-1] ${isCameraOff ? 'hidden' : 'block'}`}
+                />
 
-                    {/* 🔥 THE FIX: Video tag ko delete nahi kiya, sirf CSS se hide kiya hai taaki Unmute kaam kare! */}
-                    <video
-                        ref={myVideo}
-                        autoPlay
-                        muted
-                        playsInline
-                        className={`w-full h-full object-cover scale-x-[-1] ${isCameraOff ? 'hidden' : 'block'}`}
-                    />
-
-                    {/* Camera Off hone par tumhari DP dikhegi */}
-                    {isCameraOff && (
-                        <div className="absolute inset-0 bg-[#0b141a] flex items-center justify-center">
-                            <img src={userData?.photo || 'https://via.placeholder.com/150'} className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale" />
-                        </div>
-                    )}
-                </div>
-            )}
+                {isCameraOff && (
+                    <div className="absolute inset-0 bg-[#0b141a] flex items-center justify-center">
+                        <img src={userData?.photo || 'https://via.placeholder.com/150'} className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale" />
+                    </div>
+                )}
+            </div>
 
             {/* --- CALL CONTROLS --- */}
-            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-4 md:gap-8 bg-black/40 backdrop-blur-xl px-6 py-3 rounded-full border border-white/10 shadow-2xl">
+            <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-6 bg-black/40 backdrop-blur-xl px-6 py-3 rounded-full border border-white/10 shadow-2xl">
 
-                {/* 🎙️ Mic Button (Toggle) */}
+                {/* 🎙️ Mic Button */}
                 <button
                     onClick={toggleMic}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isMuted ? 'bg-red-500 text-white shadow-red-500/50' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                    className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all ${isMuted ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}
                     title={isMuted ? "Unmute Mic" : "Mute Mic"}
                 >
                     {isMuted ? '🔇' : '🎙️'}
                 </button>
 
-                {/* 📹 Camera Button (Video Call Only) */}
+                {/* 📹 Camera Button (Only for Video Call) */}
                 {isVideoCall && (
                     <button
                         onClick={toggleCamera}
-                        className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all ${isCameraOff ? 'bg-red-500 text-white shadow-red-500/50' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                        className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all ${isCameraOff ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}
                         title={isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
                     >
-                        {isCameraOff ? '❌📹' : '📹'}
+                        <span className="relative flex items-center justify-center">
+                            📹
+                            {/* The CSS Magic Red Slash */}
+                            {isCameraOff && <span className="absolute w-[120%] h-[3px] bg-red-500 -rotate-45 rounded-full shadow-sm"></span>}
+                        </span>
                     </button>
                 )}
 
-                {/* 📵 End Call Button */}
+                {/* 📞 End Call Button */}
                 <button
                     onClick={endCall}
-                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-2xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700 ml-4"
+                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700 ml-2"
                 >
-                    📵
+                    {/* The Rotated Phone Emoji */}
+                    <span className="inline-block rotate-[135deg] drop-shadow-md">📞</span>
                 </button>
             </div>
         </div>
