@@ -41,7 +41,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
 
     // ==============================================================
-    // 🌟 URL PARAMETER CATCHER (For Notification Clicks)
+    // 🌟 URL PARAMETER CATCHER (For Notification Auto-Accept)
     // ==============================================================
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -56,7 +56,7 @@ export const VideoProvider = ({ children }) => {
     }, [callStatus]);
 
     // ==============================================================
-    // 1. DATA FETCHING
+    // 1. DATA FETCHING & PERMISSION
     // ==============================================================
     useEffect(() => {
         if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
@@ -83,37 +83,45 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 2. SIGNALING BRIDGE 
+    // 2. SIGNALING BRIDGE (Incoming & Outgoing Sync)
     // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
 
-        const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-        const unsubSignals = onSnapshot(q, (snapshot) => {
+        // --- INCOMING LISTENER ---
+        const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
+        const unsubIncoming = onSnapshot(qIncoming, (snapshot) => {
             const currentStatus = callStatusRef.current;
-
             if (!snapshot.empty) {
                 if (currentStatus === 'idle') {
                     const signalData = snapshot.docs[0].data();
-
                     setCallerInfo({
-                        uid: signalData.callerId,
-                        name: signalData.callerName,
-                        photo: signalData.callerPhoto,
-                        callType: signalData.type
+                        uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type
                     });
                     setCallStatus('receiving');
                 }
             } else {
                 if (currentStatus === 'receiving' && !isConnectingRef.current) {
-                    setCallStatus('idle');
-                    setCallerInfo(null);
-                    setIncomingCall(null);
+                    setCallStatus('idle'); setCallerInfo(null); setIncomingCall(null);
                 }
             }
         });
 
-        return () => unsubSignals();
+        // --- 🔥 OUTGOING LISTENER (For Rejected / Dropped Calls) ---
+        const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
+        const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
+            // Agar caller ki ringing chal rahi hai aur signal delete ho jaye (matlab receiver ne accept/reject kiya)
+            if (snapshot.empty && callStatusRef.current === 'ringing' && !isConnectingRef.current) {
+                setTimeout(() => {
+                    // Agar 3 seconds baad bhi status 'connected' nahi hua, matlab call REJECT hui thi
+                    if (callStatusRef.current === 'ringing') {
+                        endCall();
+                    }
+                }, 3000);
+            }
+        });
+
+        return () => { unsubIncoming(); unsubOutgoing(); };
     }, [user, isLoading]);
 
     // ==============================================================
@@ -125,25 +133,17 @@ export const VideoProvider = ({ children }) => {
             audio.play().catch(e => console.warn("Autoplay blocked:", e));
         };
         const stopAllSounds = () => {
-            ringtoneAudio.current.pause();
-            ringtoneAudio.current.currentTime = 0;
-            dialingAudio.current.pause();
-            dialingAudio.current.currentTime = 0;
+            ringtoneAudio.current.pause(); ringtoneAudio.current.currentTime = 0;
+            dialingAudio.current.pause(); dialingAudio.current.currentTime = 0;
         };
 
         if (callStatus === 'receiving') {
-            stopAllSounds();
-            ringtoneAudio.current.loop = true;
-            playSound(ringtoneAudio.current);
+            stopAllSounds(); ringtoneAudio.current.loop = true; playSound(ringtoneAudio.current);
         } else if (callStatus === 'ringing') {
-            stopAllSounds();
-            dialingAudio.current.loop = true;
-            playSound(dialingAudio.current);
+            stopAllSounds(); dialingAudio.current.loop = true; playSound(dialingAudio.current);
         } else if (callStatus === 'idle') {
-            stopAllSounds();
-            if (prevCallStatus.current !== 'idle') playSound(endCallAudio.current);
+            stopAllSounds(); if (prevCallStatus.current !== 'idle') playSound(endCallAudio.current);
         }
-
         prevCallStatus.current = callStatus;
         return () => stopAllSounds();
     }, [callStatus]);
@@ -165,9 +165,7 @@ export const VideoProvider = ({ children }) => {
         if (myVideo.current?.srcObject) {
             const audioTrack = myVideo.current.srcObject.getAudioTracks()[0];
             if (audioTrack) {
-                const newState = !audioTrack.enabled;
-                audioTrack.enabled = newState;
-                setIsMuted(!newState);
+                const newState = !audioTrack.enabled; audioTrack.enabled = newState; setIsMuted(!newState);
                 if (currentCall?.peerConnection) {
                     const audioSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'audio');
                     if (audioSender) audioSender.track.enabled = newState;
@@ -180,9 +178,7 @@ export const VideoProvider = ({ children }) => {
         if (myVideo.current?.srcObject) {
             const videoTrack = myVideo.current.srcObject.getVideoTracks()[0];
             if (videoTrack) {
-                const newState = !videoTrack.enabled;
-                videoTrack.enabled = newState;
-                setIsCameraOff(!newState);
+                const newState = !videoTrack.enabled; videoTrack.enabled = newState; setIsCameraOff(!newState);
                 if (currentCall?.peerConnection) {
                     const videoSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'video');
                     if (videoSender) videoSender.track.enabled = newState;
@@ -192,7 +188,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. 🔥 THE BIG FIX: CALL LOGIC (API Call + Video Black Screen)
+    // 5. CALL LOGIC (API Fetch + Magic Reverse Call)
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -200,72 +196,42 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
 
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
-                // Black screen fix for local video
-                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
+                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e)); // Video Fix
             }
 
-            // 1. SIGNAL BHEJO
+            // 1. SIGNAL
             await addDoc(collection(db, "signals"), {
-                callerId: user.uid,
-                callerName: userData?.name || "User",
-                callerPhoto: userData?.photo || "",
-                receiverId: targetUid,
-                type: isVideo ? 'video' : 'audio',
-                timestamp: serverTimestamp()
+                callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
+                receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
 
-            // 2. 🔥 API CALL (Yeh missing tha! Receiver ka FCM token nikalo aur API hit karo)
+            // 2. API CALL FOR NOTIFICATION
             const receiverDoc = await getDoc(doc(db, "users", targetUid));
-            if (receiverDoc.exists()) {
-                const receiverData = receiverDoc.data();
-                if (receiverData.fcmToken) {
-                    // Yahan apna Vercel backend URL theek kar lena agar "/api/notify" nahi hai toh
-                    fetch('/api/notify', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            token: receiverData.fcmToken,
-                            fromName: userData?.name || "User",
-                            type: isVideo ? 'video' : 'audio',
-                            fromId: user.uid
-                        })
-                    }).catch(e => console.error("FCM API failed:", e));
-                } else {
-                    console.warn("Receiver doesn't have an FCM Token saved in DB.");
-                }
+            if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
+                fetch('/api/notify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: isVideo ? 'video' : 'audio', fromId: user.uid })
+                }).catch(e => console.error(e));
             }
 
             // 3. PEER CONNECTION
             const call = peerInstance.current.call(targetUid, stream, {
                 metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
             });
-
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
-            // 🔥 BLACK SCREEN FIX FOR REMOTE VIDEO
             call.on('stream', (remStream) => {
                 setCallStatus('connected');
                 if (remoteVideo.current) {
                     remoteVideo.current.srcObject = remStream;
-                    remoteVideo.current.onloadedmetadata = () => {
-                        remoteVideo.current.play().catch(e => console.log('Caller remote video error:', e));
-                    };
+                    remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
                 }
             });
-
             call.on('close', () => endCall());
-            call.on('error', (err) => {
-                console.error("Peer JS Call Error", err);
-                endCall();
-            });
-        } catch (err) {
-            console.error("Call initialization failed:", err);
-            setCallStatus('idle');
-        }
+        } catch (err) { setCallStatus('idle'); }
     };
 
     const acceptCall = async () => {
@@ -275,10 +241,8 @@ export const VideoProvider = ({ children }) => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
 
             setCallStatus('connected');
-
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
-                // Black screen fix for local video
                 myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
             }
 
@@ -287,28 +251,32 @@ export const VideoProvider = ({ children }) => {
             snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
 
             if (incomingCall) {
+                // NORMAL ACCEPT
                 incomingCall.answer(stream);
-
-                // 🔥 BLACK SCREEN FIX FOR RECEIVER
                 incomingCall.on('stream', (remStream) => {
                     if (remoteVideo.current) {
                         remoteVideo.current.srcObject = remStream;
-                        remoteVideo.current.onloadedmetadata = () => {
-                            remoteVideo.current.play().catch(e => console.log('Receiver remote video error:', e));
-                        };
+                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
                     }
                 });
-
                 incomingCall.on('close', () => endCall());
-                incomingCall.on('error', (err) => {
-                    console.error("Peer JS Incoming Call Error", err);
-                    endCall();
+            } else {
+                // 🔥 THE MAGIC REVERSE CALL (Jab app dead thi aur notification se receive kiya)
+                const call = peerInstance.current.call(callerInfo.uid, stream, {
+                    metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
                 });
+                setCurrentCall(call);
+                call.on('stream', (remStream) => {
+                    if (remoteVideo.current) {
+                        remoteVideo.current.srcObject = remStream;
+                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                    }
+                });
+                call.on('close', () => endCall());
             }
 
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
         } catch (err) {
-            console.error("Call acceptance failed:", err);
             isConnectingRef.current = false;
             endCall();
         }
@@ -325,9 +293,7 @@ export const VideoProvider = ({ children }) => {
             const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
             const snapOutgoing = await getDocs(qOutgoing);
             snapOutgoing.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
-        } catch (error) {
-            console.error("Signal cleanup failed:", error);
-        }
+        } catch (error) { console.error("Signal cleanup failed:", error); }
 
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
@@ -336,22 +302,17 @@ export const VideoProvider = ({ children }) => {
             myVideo.current.srcObject.getTracks().forEach(t => t.stop());
             myVideo.current.srcObject = null;
         }
-
         if (remoteVideo.current?.srcObject) {
             remoteVideo.current.srcObject.getTracks().forEach(t => t.stop());
             remoteVideo.current.srcObject = null;
         }
 
-        setCallStatus('idle');
-        setCurrentCall(null);
-        setIncomingCall(null);
-        setCallerInfo(null);
-        setIsMuted(false);
-        setIsCameraOff(false);
+        setCallStatus('idle'); setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
+        setIsMuted(false); setIsCameraOff(false);
     };
 
     // ==============================================================
-    // 6. PEER & PRESENCE INIT
+    // 6. PEER INIT & AUTO-ANSWER
     // ==============================================================
     useEffect(() => {
         if (!user) return;
@@ -367,6 +328,21 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('call', async (call) => {
+            // 🔥 REVERSE CALL INTERCEPT (Agar main dial kar raha tha aur samne se reverse call aayi)
+            if (callStatusRef.current === 'ringing') {
+                call.answer(myVideo.current?.srcObject); // Turant utha lo
+                setCurrentCall(call);
+                call.on('stream', (remStream) => {
+                    setCallStatus('connected');
+                    if (remoteVideo.current) {
+                        remoteVideo.current.srcObject = remStream;
+                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                    }
+                });
+                call.on('close', () => endCall());
+                return;
+            }
+
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
             if (!snap.empty) {
