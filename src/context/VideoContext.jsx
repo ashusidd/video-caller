@@ -110,10 +110,8 @@ export const VideoProvider = ({ children }) => {
         // --- 🔥 OUTGOING LISTENER (For Rejected / Dropped Calls) ---
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
-            // Agar caller ki ringing chal rahi hai aur signal delete ho jaye (matlab receiver ne accept/reject kiya)
             if (snapshot.empty && callStatusRef.current === 'ringing' && !isConnectingRef.current) {
                 setTimeout(() => {
-                    // Agar 3 seconds baad bhi status 'connected' nahi hua, matlab call REJECT hui thi
                     if (callStatusRef.current === 'ringing') {
                         endCall();
                     }
@@ -188,7 +186,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC (API Fetch + Magic Reverse Call)
+    // 5. CALL LOGIC (API Fetch, Local Video Fix & Magic Reverse Call)
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -196,9 +194,10 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
 
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
-                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e)); // Video Fix
+                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
             }
 
             // 1. SIGNAL
@@ -240,11 +239,16 @@ export const VideoProvider = ({ children }) => {
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
 
+            // 1. Pehle state change karo taaki Video Screen load hona shuru ho
             setCallStatus('connected');
-            if (myVideo.current) {
-                myVideo.current.srcObject = stream;
-                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
-            }
+
+            // 🔥 THE FIX: React ko UI render karne ke liye 300ms ka time do
+            setTimeout(() => {
+                if (myVideo.current) {
+                    myVideo.current.srcObject = stream;
+                    myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
+                }
+            }, 300);
 
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
@@ -330,16 +334,19 @@ export const VideoProvider = ({ children }) => {
         peer.on('call', async (call) => {
             // 🔥 REVERSE CALL INTERCEPT (Agar main dial kar raha tha aur samne se reverse call aayi)
             if (callStatusRef.current === 'ringing') {
-                call.answer(myVideo.current?.srcObject); // Turant utha lo
-                setCurrentCall(call);
-                call.on('stream', (remStream) => {
-                    setCallStatus('connected');
-                    if (remoteVideo.current) {
-                        remoteVideo.current.srcObject = remStream;
-                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                    }
-                });
-                call.on('close', () => endCall());
+                // Thoda delay taaki connection stable ho
+                setTimeout(() => {
+                    call.answer(myVideo.current?.srcObject);
+                    setCurrentCall(call);
+                    call.on('stream', (remStream) => {
+                        setCallStatus('connected');
+                        if (remoteVideo.current) {
+                            remoteVideo.current.srcObject = remStream;
+                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                        }
+                    });
+                    call.on('close', () => endCall());
+                }, 300);
                 return;
             }
 
