@@ -44,8 +44,8 @@ function FriendItem({ friend, isSelected, onClick }) {
 
                 {/* Indicator Dot with Neon Glow */}
                 <div className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 border-2 border-[#111b21] rounded-full transition-colors duration-500 ${status === 'online'
-                        ? 'bg-green-500 shadow-[0_0_8px_#22c55e]'
-                        : 'bg-zinc-600'
+                    ? 'bg-green-500 shadow-[0_0_8px_#22c55e]'
+                    : 'bg-zinc-600'
                     }`}></div>
             </div>
 

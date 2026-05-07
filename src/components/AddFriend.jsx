@@ -1,16 +1,17 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
-import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+// Ab is page par Firebase ke direct imports ki zaroorat nahi kyunki sara kaam VideoContext sambhal raha hai
 
 export default function AddFriend() {
-    const { searchUsers, userData } = useContext(VideoContext);
+    // 🔥 FIX 1: VideoContext se apna naya 'addFriend' function nikala
+    const { searchUsers, userData, addFriend } = useContext(VideoContext);
+
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
     const [searching, setSearching] = useState(false);
 
     useEffect(() => {
-        // Debounce logic
+        // Debounce logic (taaki har ek letter type hone par API call na ho)
         const delaySearch = setTimeout(async () => {
             const lowerQuery = query.trim().toLowerCase();
 
@@ -33,22 +34,18 @@ export default function AddFriend() {
 
         return () => clearTimeout(delaySearch);
     }, [query, searchUsers]);
-    const sendRequest = async (targetUser) => {
-        try {
-            await addDoc(collection(db, "friendRequests"), {
-                senderId: userData.uid,
-                senderName: userData.name,
-                senderPhoto: userData.photo || "",
-                receiverId: targetUser.uid,
-                status: "pending",
-                timestamp: serverTimestamp()
-            });
 
-            alert(`Friend request sent to ${targetUser.name}!`);
+    // 🔥 FIX 2: Friend Request ki jagah Direct Add wala logic lagaya
+    const handleAddDirectly = async (targetUser) => {
+        try {
+            // Ye seedha VideoContext mein jayega aur Firebase Firestore update karega
+            await addFriend(targetUser.uid);
+
+            alert(`Boom! ${targetUser.name} is now your friend! 🚀`);
             setQuery('');
-            setResults([]);
+            setResults([]); // Add hone ke baad search list khali kar do
         } catch (err) {
-            console.error("Failed to send request:", err);
+            console.error("Failed to add friend:", err);
             alert(`Error: ${err.message}`);
         }
     };
@@ -59,7 +56,7 @@ export default function AddFriend() {
                 <input
                     type="text"
                     placeholder="Search @username or phone..."
-                    className="w-full bg-zinc-900 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 focus:border-blue-600 transition-all outline-none"
+                    className="w-full bg-zinc-900 p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 focus:border-blue-600 transition-all outline-none text-white"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                 />
@@ -99,7 +96,8 @@ export default function AddFriend() {
                                 </div>
                             </div>
                             <button
-                                onClick={() => sendRequest(u)}
+                                // 🔥 FIX 3: Button dabne par apna naya function chalao
+                                onClick={() => handleAddDirectly(u)}
                                 className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
                             >
                                 Add

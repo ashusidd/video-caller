@@ -1,7 +1,8 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc } from 'firebase/firestore';
+// 🔥 FIX 1: 'updateDoc' aur 'arrayUnion' ko import list mein add kiya hai
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -66,6 +67,9 @@ export const VideoProvider = ({ children }) => {
             console.log("No user found.");
             setIsLoading(false);
             setUserData(null);
+            // 🔥 FIX 2: Logout hote hi friends list ka kachra saaf karo!
+            setFriends([]);
+            setSelectedFriend(null);
             return;
         }
 
@@ -73,7 +77,7 @@ export const VideoProvider = ({ children }) => {
         if ('Notification' in window) {
             Notification.requestPermission().then((permission) => {
                 if (permission === 'granted') {
-                    saveFCMToken(); // 🔥 Token mangne aur save karne wala function
+                    saveFCMToken();
                 }
             });
         }
@@ -103,7 +107,6 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => {
         if (!user || isLoading) return;
 
-        // --- INCOMING LISTENER ---
         const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
         const unsubIncoming = onSnapshot(qIncoming, (snapshot) => {
             const currentStatus = callStatusRef.current;
@@ -122,7 +125,6 @@ export const VideoProvider = ({ children }) => {
             }
         });
 
-        // --- 🔥 OUTGOING LISTENER (For Rejected / Dropped Calls) ---
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
             if (snapshot.empty && callStatusRef.current === 'ringing' && !isConnectingRef.current) {
@@ -201,7 +203,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC (API Fetch, Local Video Fix & Magic Reverse Call)
+    // 5. CALL LOGIC
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -221,13 +223,11 @@ export const VideoProvider = ({ children }) => {
                 myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
             }
 
-            // 1. SIGNAL
             await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
 
-            // 2. API CALL FOR NOTIFICATION
             const receiverDoc = await getDoc(doc(db, "users", targetUid));
             if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
                 fetch('/api/notify', {
@@ -236,7 +236,6 @@ export const VideoProvider = ({ children }) => {
                 }).catch(e => console.error(e));
             }
 
-            // 3. PEER CONNECTION
             const call = peerInstance.current.call(targetUid, stream, {
                 metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
             });
@@ -274,7 +273,6 @@ export const VideoProvider = ({ children }) => {
             snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
 
             if (incomingCall) {
-                // NORMAL ACCEPT
                 incomingCall.answer(stream);
                 incomingCall.on('stream', (remStream) => {
                     if (remoteVideo.current) {
@@ -284,7 +282,6 @@ export const VideoProvider = ({ children }) => {
                 });
                 incomingCall.on('close', () => endCall());
             } else {
-                // 🔥 THE MAGIC REVERSE CALL
                 const call = peerInstance.current.call(callerInfo.uid, stream, {
                     metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
                 });
@@ -340,7 +337,6 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => {
         if (!user) return;
 
-        // --- 🟢 1. PRESENCE LOGIC ---
         const userStatusRef = ref(rtdb, `/status/${user.uid}`);
         const connectedRef = ref(rtdb, ".info/connected");
         onValue(connectedRef, (snapshot) => {
@@ -349,7 +345,6 @@ export const VideoProvider = ({ children }) => {
                 .then(() => set(userStatusRef, { state: 'online', last_changed: rtdbTimestamp() }));
         });
 
-        // --- 🔵 2. PEERJS INITIALIZATION ---
         const peer = new Peer(user.uid, {
             debug: 2,
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
@@ -357,7 +352,6 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('call', async (call) => {
-            // Busy logic (Jo tumne pehle add kiya tha)
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
                 call.answer();
                 setTimeout(() => call.close(), 500);
@@ -391,14 +385,11 @@ export const VideoProvider = ({ children }) => {
             }
         });
 
-        // --- 🤝 3. FRIENDS LISTENER (The Missing Piece) ---
-        // Hum apni profile sunenge, aur jaise hi 'friends' array badlega, ye trigger hoga
         const unsubFriends = onSnapshot(doc(db, "users", user.uid), async (userSnap) => {
             if (userSnap.exists()) {
                 const myFriendIds = userSnap.data().friends || [];
 
                 if (myFriendIds.length > 0) {
-                    // 'in' query se saare doston ka data ek sath uthao
                     const qFriends = query(
                         collection(db, "users"),
                         where("uid", "in", myFriendIds)
@@ -408,26 +399,23 @@ export const VideoProvider = ({ children }) => {
                     const friendList = friendDocs.docs.map(d => d.data());
                     setFriends(friendList);
                 } else {
-                    setFriends([]); // Agar koi dost nahi hai
+                    setFriends([]);
                 }
             }
         });
 
         return () => {
             peer.destroy();
-            unsubFriends(); // Cleanup zaroori hai memory leak rokne ke liye
+            unsubFriends();
         };
     }, [user]);
+
     // ==============================================================
     // 7. PROFILE SETUP FUNCTION
     // ==============================================================
-
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
-
         try {
-            // 🟢 Logic: Agar Google se photoURL mil rahi hai toh wahi use karo
-            // Warna ek backup avatar initials ke saath bana lo
             const googlePhoto = user.photoURL || "";
             const backupAvatar = `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`;
 
@@ -435,7 +423,6 @@ export const VideoProvider = ({ children }) => {
                 name: name,
                 username: username.toLowerCase().trim(),
                 phone: phone,
-                // 🔥 Dono fields ko same rakho taaki confusion na ho
                 photo: googlePhoto || backupAvatar,
                 photoURL: googlePhoto || backupAvatar,
                 uid: user.uid,
@@ -447,17 +434,16 @@ export const VideoProvider = ({ children }) => {
             console.error("Setup error:", error);
         }
     };
+
     // ==============================================================
     // 8. SEARCH USERS FUNCTION
     // ==============================================================
     const searchUsers = async (searchTerm) => {
         try {
-            // Space hatakar small letters mein convert karo (jaise database mein hai)
             const term = searchTerm.toLowerCase().replace(/\s+/g, '');
             if (!term) return [];
 
             const usersRef = collection(db, "users");
-            // Ye query us username ko dhoondhegi jo type kiye hue letters se start hota hai
             const q = query(usersRef,
                 where("username", ">=", term),
                 where("username", "<=", term + '\uf8ff')
@@ -467,7 +453,6 @@ export const VideoProvider = ({ children }) => {
             const results = [];
 
             snapshot.forEach((docSnap) => {
-                // Khud ki profile ko search result mein mat dikhao
                 if (docSnap.id !== user.uid) {
                     results.push({ uid: docSnap.id, ...docSnap.data() });
                 }
@@ -481,7 +466,29 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 9. SAVE FCM TOKEN (For Push Notifications)
+    // 🌟 9. ADD FRIEND FUNCTION (THE MISSING PIECE!) 🌟
+    // ==============================================================
+    const addFriend = async (friendId) => {
+        try {
+            if (!user?.uid) return;
+
+            // Apne (current user) document ka reference lo
+            const myDocRef = doc(db, "users", user.uid);
+
+            // 'arrayUnion' use karne se ye friend hamesha ke liye DB mein save ho jayega
+            // aur duplicate nahi hoga!
+            await updateDoc(myDocRef, {
+                friends: arrayUnion(friendId)
+            });
+
+            console.log("Dost hamesha ke liye Firebase mein add ho gaya! 🚀");
+        } catch (error) {
+            console.error("Dost add karne mein error aaya:", error);
+        }
+    };
+
+    // ==============================================================
+    // 10. SAVE FCM TOKEN (For Push Notifications)
     // ==============================================================
     const saveFCMToken = async () => {
         try {
@@ -507,7 +514,8 @@ export const VideoProvider = ({ children }) => {
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
-            setupProfile, searchUsers, saveFCMToken
+            setupProfile, searchUsers, saveFCMToken,
+            addFriend // 🔥 FIX 3: Is naye function ko export kar diya hai
         }}>
             {children}
         </VideoContext.Provider>
