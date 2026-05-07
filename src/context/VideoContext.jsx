@@ -82,7 +82,7 @@ export const VideoProvider = ({ children }) => {
             setUserData(snapshot.exists() ? snapshot.data() : null);
             setTimeout(() => {
                 setIsLoading(false);
-            }, 100);
+            }, 300);
         }, (error) => {
             console.error("Fetch error:", error);
             setIsLoading(false);

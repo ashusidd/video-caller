@@ -27,7 +27,6 @@ function CallHandler() {
     if (action === 'accept' && incomingCall) {
       console.log("🚀 Notification Accepted: Connecting...");
       acceptCall();
-      // URL saaf karo taaki refresh pe baar-baar trigger na ho
       window.history.replaceState({}, document.title, "/");
     }
   }, [location, incomingCall, acceptCall]);
@@ -37,14 +36,18 @@ function CallHandler() {
 
 function App() {
   const { user, loading: authloading } = useContext(AuthContext);
-  const { userData, callStatus, isLoading } = useContext(VideoContext);
+  const { userData, callStatus, isLoading: videoLoading } = useContext(VideoContext);
 
   // ==============================================================
-  // 🛡️ SHIELD 1: SPLASH SCREEN (Anti-Blink Layer)
+  // 🛡️ THE ZERO-BLINK SHIELD (Double-Lock Logic)
   // ==============================================================
-  // Jab tak Firestore se data nahi milta, tab tak Onboarding ya Home 
-  // render hi nahi honge. Sirf Splash dikhega.
-  if (authloading || isLoading) {
+  // Hum Splash tab tak nahi hatayenge jab tak:
+  // 1. Firebase Auth load ho raha ho
+  // 2. VideoContext data fetch kar raha ho
+  // 3. Ya agar user mil gaya hai par Firestore ka data abhi 'null' hai
+  const isSyncing = authloading || videoLoading || (user && userData === null);
+
+  if (isSyncing) {
     return (
       <div className="h-[100dvh] bg-black flex items-center justify-center">
         <div className="flex flex-col items-center">
@@ -64,59 +67,38 @@ function App() {
     );
   }
 
+  // ==============================================================
+  // 🛡️ CONDITIONAL RENDERING (No Redirect = No Blink)
+  // ==============================================================
+
+  // 1. Agar login nahi hai toh seedha Auth Page
+  if (!user) return <Auth />;
+
+  // 2. Agar login hai par profile setup nahi hai toh seedha Onboarding
+  if (user && !userData?.username) return <Onboarding />;
+
+  // 3. Sab sahi hai toh Router aur Main App render karo
   return (
     <Router>
       <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
 
-        {/* Call UI humesha top pe rahegi jab call status connected/receiving ho */}
+        {/* Call UI humesha top pe */}
         {callStatus !== 'idle' && <CallInterface />}
 
-        <Routes>
-          {/* 🚪 AUTH: Agar logged in ho toh Home jao, warna Auth dikhao */}
-          <Route path="/auth" element={!user ? <Auth /> : <Navigate to="/" replace />} />
-
-          {/* 📝 ONBOARDING: Strict check taaki koi bypass na kar sake */}
-          <Route
-            path="/onboarding"
-            element={
-              user ? (
-                userData?.username ? <Navigate to="/" replace /> : <Onboarding />
-              ) : <Navigate to="/auth" replace />
-            }
-          />
-
-          {/* 🏠 MAIN APP: Dashboard Check */}
-          <Route
-            path="/*"
-            element={
-              user ? (
-                userData?.username ? (
-                  // Sab theek hai toh Layout dikhao
-                  <div className="flex flex-col h-full overflow-hidden">
-                    <Navbar />
-                    <div className="flex flex-1 overflow-hidden relative">
-                      <Sidebar />
-                      <main className="flex-1 bg-[#0b141a] relative overflow-hidden">
-                        <Routes>
-                          <Route path="/" element={<Home />} />
-                          <Route path="/chat/:id" element={<Home />} />
-                          <Route path="*" element={<Navigate to="/" replace />} />
-                        </Routes>
-                      </main>
-                    </div>
-                  </div>
-                ) : (
-                  // Profile pending hai
-                  <Navigate to="/onboarding" replace />
-                )
-              ) : (
-                // Login nahi hai
-                <Navigate to="/auth" replace />
-              )
-            }
-          />
-        </Routes>
+        <div className="flex flex-col h-full overflow-hidden">
+          <Navbar />
+          <div className="flex flex-1 overflow-hidden relative">
+            <Sidebar />
+            <main className="flex-1 bg-[#0b141a] relative overflow-hidden">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/chat/:id" element={<Home />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
+          </div>
+        </div>
       </div>
     </Router>
   );
