@@ -1,7 +1,7 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 
@@ -193,7 +193,6 @@ export const VideoProvider = ({ children }) => {
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
             setCallStatus('ringing');
 
-            // 🔥 THE FIX: Caller ki UI ko batao ki Audio call lag rahi hai ya Video!
             setCallerInfo({
                 uid: targetUid,
                 name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"),
@@ -246,10 +245,8 @@ export const VideoProvider = ({ children }) => {
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
 
-            // 1. Pehle state change karo taaki Video Screen load hona shuru ho
             setCallStatus('connected');
 
-            // 🔥 THE FIX: React ko UI render karne ke liye 300ms ka time do
             setTimeout(() => {
                 if (myVideo.current) {
                     myVideo.current.srcObject = stream;
@@ -272,7 +269,7 @@ export const VideoProvider = ({ children }) => {
                 });
                 incomingCall.on('close', () => endCall());
             } else {
-                // 🔥 THE MAGIC REVERSE CALL (Jab app dead thi aur notification se receive kiya)
+                // 🔥 THE MAGIC REVERSE CALL
                 const call = peerInstance.current.call(callerInfo.uid, stream, {
                     metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
                 });
@@ -339,9 +336,7 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('call', async (call) => {
-            // 🔥 REVERSE CALL INTERCEPT (Agar main dial kar raha tha aur samne se reverse call aayi)
             if (callStatusRef.current === 'ringing') {
-                // Thoda delay taaki connection stable ho
                 setTimeout(() => {
                     call.answer(myVideo.current?.srcObject);
                     setCurrentCall(call);
@@ -375,12 +370,37 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubFriends(); peer.destroy(); };
     }, [user]);
 
+    // ==============================================================
+    // 🔥 FIX 2: 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
+    // ==============================================================
+    const setupProfile = async (name, username, phone) => {
+        if (!user) {
+            throw new Error("User not logged!");
+        }
+
+        try {
+            await setDoc(doc(db, "users", user.uid), {
+                name: name,
+                username: username, // 🟢 Ab username 100% save hoga
+                phone: phone,
+                uid: user.uid,
+                updatedAt: serverTimestamp()
+            }, { merge: true }); // merge: true se baaki data (email wagerah) safe rahega
+
+            console.log("Profile setup completed!");
+        } catch (error) {
+            console.error("Profile save error:", error);
+            throw error;
+        }
+    };
+
     return (
         <VideoContext.Provider value={{
             userData, isLoading, friends, selectedFriend, setSelectedFriend,
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
-            isMuted, isCameraOff, toggleMic, toggleCamera, callTimer
+            isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
+            setupProfile // 🔥 FIX 3: Context Provider mein function pass kar diya
         }}>
             {children}
         </VideoContext.Provider>

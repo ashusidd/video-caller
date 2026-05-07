@@ -11,8 +11,14 @@ export default function ProfileModal({ onClose }) {
     const [isEditing, setIsEditing] = useState(false);
     const [newName, setNewName] = useState(userData?.name || '');
 
+    // 🔥 Naya state: Button loading effect ke liye
+    const [isSaving, setIsSaving] = useState(false);
+
     const handleSave = async () => {
         if (!newName.trim()) return;
+
+        setIsSaving(true); // Button disable aur loading shuru
+
         try {
             const userRef = doc(db, 'users', userData.uid);
             await updateDoc(userRef, { name: newName });
@@ -20,6 +26,10 @@ export default function ProfileModal({ onClose }) {
             setIsEditing(false);
         } catch (error) {
             console.error("Error updating profile", error);
+            // Agar internet band ho jaye toh UI crash nahi hoga, balki ye error aayega
+            alert("Name is not update, check internet connection!");
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -63,7 +73,14 @@ export default function ProfileModal({ onClose }) {
                                 className="flex-1 bg-zinc-900 border border-blue-500/50 outline-none text-white text-sm px-3 py-2 rounded-lg"
                                 autoFocus
                             />
-                            <button onClick={handleSave} className="bg-blue-600 text-white text-xs px-3 rounded-lg font-bold">SAVE</button>
+                            {/* 🔥 Button ab disabled state handle karega */}
+                            <button
+                                onClick={handleSave}
+                                disabled={isSaving}
+                                className={`text-white text-xs px-3 rounded-lg font-bold transition-all ${isSaving ? 'bg-zinc-700 cursor-wait' : 'bg-blue-600 hover:bg-blue-500'}`}
+                            >
+                                {isSaving ? '...' : 'SAVE'}
+                            </button>
                         </div>
                     ) : (
                         <div className="text-sm font-medium text-white px-3 py-2 bg-zinc-900/50 rounded-lg border border-white/5">
@@ -89,9 +106,9 @@ export default function ProfileModal({ onClose }) {
                     <span>🚪</span> Logout
                 </button>
 
-                {/* --- ASHU BRANDING --- */}
+                {/* --- PROFESSIONAL BRANDING --- */}
                 <span className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.4em] italic opacity-50">
-                    ashu 2026 version 1.0
+                    Ashraf Ali 2026 version 1.0
                 </span>
             </div>
         </div>
