@@ -1,7 +1,8 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+// 🔥 FIX 1: arrayRemove ko import kiya gaya hai
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -42,7 +43,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
 
     // ==============================================================
-    // 🌟 URL PARAMETER CATCHER (For Notification Auto-Accept)
+    // 🔗 URL PARAMETER CATCHER (For Notification Auto-Accept)
     // ==============================================================
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -71,7 +72,6 @@ export const VideoProvider = ({ children }) => {
             return;
         }
 
-        // 🔔 Permission aur Token Logic
         if ('Notification' in window) {
             Notification.requestPermission().then((permission) => {
                 if (permission === 'granted') {
@@ -388,14 +388,23 @@ export const VideoProvider = ({ children }) => {
                 const myFriendIds = userSnap.data().friends || [];
 
                 if (myFriendIds.length > 0) {
-                    const qFriends = query(
-                        collection(db, "users"),
-                        where("uid", "in", myFriendIds)
-                    );
+                    try {
+                        const friendsPromises = myFriendIds.map(async (id) => {
+                            const friendDocRef = doc(db, "users", id);
+                            const friendDoc = await getDoc(friendDocRef);
 
-                    const friendDocs = await getDocs(qFriends);
-                    const friendList = friendDocs.docs.map(d => d.data());
-                    setFriends(friendList);
+                            if (!friendDoc.exists()) return null;
+
+                            return { uid: friendDoc.id, ...friendDoc.data() };
+                        });
+
+                        const rawFriendsData = await Promise.all(friendsPromises);
+                        const cleanFriendsList = rawFriendsData.filter(friend => friend !== null);
+
+                        setFriends(cleanFriendsList);
+                    } catch (error) {
+                        console.error("Friends fetch error:", error);
+                    }
                 } else {
                     setFriends([]);
                 }
@@ -464,39 +473,67 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 🌟 9. MUTUAL FRIEND REQUEST LOGIC (TWO-WAY ADD) 🌟
-
+    // 9. FRIEND REQUEST LOGIC (ACCEPT & REJECT)
+    // ==============================================================
     const acceptFriendRequest = async (requestId, senderId) => {
         try {
             if (!user?.uid) return;
 
-            // 1. Pehle apne Firebase me dost add karo (Ye 100% chalega)
             await updateDoc(doc(db, "users", user.uid), {
                 friends: arrayUnion(senderId)
             });
 
-            // 2. 🔥 SABSE ZAROORI LINE: Turant Request Delete karo! 🔥
-            // Code crash hone se pehle hum isko delete kar denge taaki UI clear ho jaye.
             await deleteDoc(doc(db, "friendRequests", requestId));
-            console.log("Request screen se successfully hat gayi!");
 
-            // 3. Ab dusre ki profile update karo (Isko alag try-catch me dala hai)
-            // Taki agar yahan error aaye bhi, toh Request wapas chipki na reh jaye.
             try {
                 await updateDoc(doc(db, "users", senderId), {
                     friends: arrayUnion(user.uid)
                 });
             } catch (err) {
-                console.log("Dusre ki profile update block ho gayi, par UI clear hai!");
+                console.log("Receiver update blocked, but UI cleared.");
             }
-
         } catch (error) {
-            console.error("Dost banne me error aayi:", error);
+            console.error("Accept error:", error);
+        }
+    };
+
+    const rejectFriendRequest = async (requestId) => {
+        try {
+            if (!requestId) return;
+            await deleteDoc(doc(db, "friendRequests", requestId));
+            console.log("Request Rejected and Removed!");
+        } catch (error) {
+            console.error("Error rejecting request:", error);
         }
     };
 
     // ==============================================================
-    // 10. SAVE FCM TOKEN (For Push Notifications)
+    // 10. DELETE FRIEND FUNCTION (🔥 TWO-WAY UNFRIEND)
+    // ==============================================================
+    const deleteFriend = async (friendId) => {
+        try {
+            if (!user?.uid || !friendId) return;
+
+            // 1. Apni list se dost ko nikalo
+            await updateDoc(doc(db, "users", user.uid), {
+                friends: arrayRemove(friendId)
+            });
+
+            // 2. Dost ki list se apna account nikalo
+            await updateDoc(doc(db, "users", friendId), {
+                friends: arrayRemove(user.uid)
+            });
+
+            console.log("Friend deleted successfully from both sides!");
+            setSelectedFriend(null); // UI clear kar do
+
+        } catch (error) {
+            console.error("Error deleting friend:", error);
+        }
+    };
+
+    // ==============================================================
+    // 11. SAVE FCM TOKEN
     // ==============================================================
     const saveFCMToken = async () => {
         try {
@@ -523,9 +560,9 @@ export const VideoProvider = ({ children }) => {
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
             setupProfile, searchUsers, saveFCMToken,
-
-            // 🔥 Naye functions ko export kar diya hai
             acceptFriendRequest,
+            rejectFriendRequest,
+            deleteFriend // 🔥 FIX 2: Isko Provider se export kar diya
         }}>
             {children}
         </VideoContext.Provider>

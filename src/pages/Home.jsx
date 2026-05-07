@@ -2,35 +2,39 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useContext, useState } from 'react';
 import { VideoContext } from '../context/VideoContext';
 import CallLogs from '../components/CallLogs';
-import { ref, onValue } from 'firebase/database'; // RTDB imports
-import { rtdb } from '../firebase'; // RTDB instance
+import { ref, onValue } from 'firebase/database';
+import { rtdb } from '../firebase';
 
 export default function Home() {
     const { id } = useParams();
     const navigate = useNavigate();
+
     const {
         friends,
         setSelectedFriend,
         selectedFriend,
-        startCall
+        startCall,
+        deleteFriend
     } = useContext(VideoContext);
 
-    // Friend ka live online/offline status handle karne ke liye state
     const [status, setStatus] = useState('offline');
 
-    // 1. URL change hote hi friend ki details load karo
     useEffect(() => {
         if (id && friends && friends.length > 0) {
             const foundFriend = friends.find(f => f.uid === id);
+
             if (foundFriend) {
                 setSelectedFriend(foundFriend);
+            } else {
+                console.log("Dost nahi mila (Shayad delete ho gaya). Redirecting...");
+                setSelectedFriend(null);
+                navigate('/');
             }
         } else if (!id) {
             setSelectedFriend(null);
         }
-    }, [id, friends, setSelectedFriend]);
+    }, [id, friends, setSelectedFriend, navigate]);
 
-    // 2. RTDB Listener: Friend ka online status check karne ke liye
     useEffect(() => {
         if (!id) return;
 
@@ -47,7 +51,6 @@ export default function Home() {
         return () => unsub();
     }, [id]);
 
-    // 3. Default State (Jab koi contact select na ho)
     if (!id) {
         return (
             <div className="h-full w-full hidden md:flex flex-col items-center justify-center bg-[#0b141a] text-zinc-600">
@@ -65,51 +68,63 @@ export default function Home() {
 
             {/* --- HEADER SECTION --- */}
             <div className="h-[60px] bg-[#202c33] px-4 flex items-center justify-between border-l border-white/5 shrink-0">
+
+                {/* 👈 LEFT SIDE (Profile Info + Delete Button) */}
                 <div className="flex items-center gap-4 min-w-0">
                     <button onClick={() => navigate('/')} className="md:hidden text-white text-2xl pr-2">←</button>
 
                     <div className="relative">
                         <img
-                            // 🔥 FIX: Pehle 'photo' check karega, phir 'photoURL', warna initials wala avatar
-                            src={selectedFriend?.photo || selectedFriend?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name}&background=random&color=fff`}
+                            src={selectedFriend?.photo || selectedFriend?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'User'}&background=random&color=fff`}
                             className="w-10 h-10 rounded-full object-cover border border-white/10"
                             alt={selectedFriend?.name || "Friend"}
                             onError={(e) => {
-                                // Agar dono URLs broken nikle, toh ye backup avatar dikhayega
-                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name}&background=random&color=fff`;
+                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'User'}&background=random&color=fff`;
                             }}
                         />
-                        {/* Status Dot with Neon Glow */}
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#202c33] transition-all duration-500 ${status === 'online' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-zinc-500'
-                            }`}></div>
+                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#202c33] transition-all duration-500 ${status === 'online' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-zinc-500'}`}></div>
                     </div>
 
                     <div className="flex flex-col min-w-0">
                         <span className="text-sm font-bold text-white truncate">
                             {selectedFriend?.name || "Loading..."}
                         </span>
-                        <span className={`text-[9px] font-black uppercase tracking-widest transition-colors ${status === 'online' ? 'text-green-500 animate-pulse' : 'text-zinc-500'
-                            }`}>
+                        <span className={`text-[9px] font-black uppercase tracking-widest transition-colors ${status === 'online' ? 'text-green-500 animate-pulse' : 'text-zinc-500'}`}>
                             {status}
                         </span>
                     </div>
+
+                    {/* 🔥 DELETE BUTTON SHIFTED HERE (Left Side) */}
+                    <button
+                        onClick={() => {
+                            if (window.confirm(`Kya tum sach mein ${selectedFriend?.name} ko delete karna chahte ho?`)) {
+                                deleteFriend(selectedFriend?.uid);
+                                navigate('/');
+                            }
+                        }}
+                        disabled={!selectedFriend}
+                        className={`ml-2 w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-90 border ${selectedFriend ? 'bg-red-500/10 hover:bg-red-500/20 text-red-500 border-red-500/20' : 'hidden'}`}
+                        title="Delete Friend"
+                    >
+                        <span className="text-sm">🗑️</span>
+                    </button>
                 </div>
 
-                {/* Call Action Buttons */}
+                {/* 👉 RIGHT SIDE (Call Action Buttons) */}
                 <div className="flex items-center gap-3">
-                    {/* Audio Call Button */}
                     <button
-                        onClick={() => startCall(selectedFriend?.uid, false)} // isVideo = false
-                        className="w-10 h-10 rounded-full bg-[#2a3942] hover:bg-[#374954] flex items-center justify-center text-white transition-all active:scale-90 shadow-lg border border-white/5"
+                        onClick={() => startCall(selectedFriend?.uid, false)}
+                        disabled={!selectedFriend}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-all shadow-lg border border-white/5 ${selectedFriend ? 'bg-[#2a3942] hover:bg-[#374954] active:scale-90' : 'bg-zinc-800 opacity-50 cursor-not-allowed'}`}
                         title="Audio Call"
                     >
                         <span className="text-lg">📞</span>
                     </button>
 
-                    {/* Video Call Button */}
                     <button
-                        onClick={() => startCall(selectedFriend?.uid, true)} // isVideo = true
-                        className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center shadow-lg shadow-blue-600/20 active:scale-90 transition-all"
+                        onClick={() => startCall(selectedFriend?.uid, true)}
+                        disabled={!selectedFriend}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all ${selectedFriend ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20 active:scale-90' : 'bg-zinc-800 opacity-50 cursor-not-allowed'}`}
                         title="Video Call"
                     >
                         <span className="text-lg">📹</span>
@@ -132,7 +147,6 @@ export default function Home() {
                         </span>
                     </div>
 
-                    {/* Component to render specific logs */}
                     {id && <CallLogs filterId={id} />}
                 </div>
             </div>
