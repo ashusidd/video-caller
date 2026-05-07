@@ -101,7 +101,7 @@ export default function CallInterface() {
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
             {/* 🟢 REMOTE VIDEO (Saamne wala) */}
-            <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/10 flex items-center justify-center">
+            <div className="relative h-1/2 md:h-full md:flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/10 flex items-center justify-center overflow-hidden">
                 {/* 🔥 Condition: Agar camera off hai toh video hide karo */}
                 <video
                     ref={remoteVideo}
@@ -136,7 +136,7 @@ export default function CallInterface() {
             </div>
 
             {/* 🔵 LOCAL VIDEO (Meri Khud ki) */}
-            <div className={`relative flex-1 bg-zinc-950 flex items-center justify-center ${!isVideoCall && 'hidden'}`}>
+            <div className={`relative h-1/2 md:h-full md:flex-1 bg-zinc-950 flex items-center justify-center overflow-hidden ${!isVideoCall && 'hidden'}`}>
                 <video
                     ref={myVideo}
                     autoPlay
