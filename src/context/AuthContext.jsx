@@ -29,6 +29,7 @@ export const AuthProvider = ({ children }) => {
                 uid: u.uid,
                 email: u.email,
                 displayName: u.displayName,
+                photo: u.photoURL,
                 photoURL: u.photoURL,
                 lastLogin: new Date()
             }, { merge: true }); // { merge: true } zaroori hai

@@ -80,7 +80,9 @@ export const VideoProvider = ({ children }) => {
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
             setUserData(snapshot.exists() ? snapshot.data() : null);
-            setIsLoading(false);
+            setTimeout(() => {
+                setIsLoading(false);
+            }, 100);
         }, (error) => {
             console.error("Fetch error:", error);
             setIsLoading(false);

@@ -64,7 +64,16 @@ export default function Navbar() {
                     </button>
 
                     <div className="relative cursor-pointer" onClick={() => toggleModal('profile')}>
-                        <img src={userData?.photo || 'https://via.placeholder.com/150'} className="w-10 h-10 rounded-full object-cover border-2 border-white/10" alt="Profile" />
+                        <img
+                            // 🔥 Pehle 'photo' dekhega, phir 'photoURL', aur last mein initials wala avatar
+                            src={userData?.photo || userData?.photoURL || `https://ui-avatars.com/api/?name=${userData?.name}&background=random&color=fff`}
+                            className="w-10 h-10 rounded-full object-cover border-2 border-white/10"
+                            alt="Profile"
+                            onError={(e) => {
+                                // Agar link broken ho ya image load na ho, toh initials wala backup dikhao
+                                e.target.src = `https://ui-avatars.com/api/?name=${userData?.name}&background=random&color=fff`;
+                            }}
+                        />
                     </div>
                 </div>
             </nav>

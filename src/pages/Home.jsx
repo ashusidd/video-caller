@@ -70,9 +70,14 @@ export default function Home() {
 
                     <div className="relative">
                         <img
-                            src={selectedFriend?.photo || 'https://via.placeholder.com/150'}
+                            // 🔥 FIX: Pehle 'photo' check karega, phir 'photoURL', warna initials wala avatar
+                            src={selectedFriend?.photo || selectedFriend?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name}&background=random&color=fff`}
                             className="w-10 h-10 rounded-full object-cover border border-white/10"
-                            alt=""
+                            alt={selectedFriend?.name || "Friend"}
+                            onError={(e) => {
+                                // Agar dono URLs broken nikle, toh ye backup avatar dikhayega
+                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name}&background=random&color=fff`;
+                            }}
                         />
                         {/* Status Dot with Neon Glow */}
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#202c33] transition-all duration-500 ${status === 'online' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-zinc-500'
