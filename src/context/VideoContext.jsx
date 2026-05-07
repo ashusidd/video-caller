@@ -320,12 +320,12 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 6. PEER INIT, PRESENCE & BUSY LOGIC
+    // 6. PEER INIT, PRESENCE & FRIENDS LISTENER
     // ==============================================================
     useEffect(() => {
         if (!user) return;
 
-        // Presence Logic (Online/Offline)
+        // --- 🟢 1. PRESENCE LOGIC ---
         const userStatusRef = ref(rtdb, `/status/${user.uid}`);
         const connectedRef = ref(rtdb, ".info/connected");
         onValue(connectedRef, (snapshot) => {
@@ -334,7 +334,7 @@ export const VideoProvider = ({ children }) => {
                 .then(() => set(userStatusRef, { state: 'online', last_changed: rtdbTimestamp() }));
         });
 
-        // PeerJS Initialization
+        // --- 🔵 2. PEERJS INITIALIZATION ---
         const peer = new Peer(user.uid, {
             debug: 2,
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
@@ -342,24 +342,13 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('call', async (call) => {
-            // 🔥 BUSY CHECK: Agar status 'idle' nahi hai, matlab user busy hai
+            // Busy logic (Jo tumne pehle add kiya tha)
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
-                console.log("User is busy on another call. Rejecting...");
-
-                // 1. Call ko turant close karo bina pick kiye
-                call.answer(); // Connection initiate karne ke liye zaroori hai
+                call.answer();
                 setTimeout(() => call.close(), 500);
-
-                // 2. Caller ko batane ke liye ki tum busy ho, signal delete kardo ya busy update dalo
-                // Filhal hum signal delete kar denge taaki caller ko "Busy/Disconnected" dikhe
-                const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-                const snap = await getDocs(q);
-                snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
-
-                return; // Logic yahi stop kar do
+                return;
             }
 
-            // --- BAAKI NORMAL LOGIC (Jo pehle tha) ---
             if (callStatusRef.current === 'ringing') {
                 setTimeout(() => {
                     call.answer(myVideo.current?.srcObject);
@@ -387,7 +376,32 @@ export const VideoProvider = ({ children }) => {
             }
         });
 
-        return () => { peer.destroy(); };
+        // --- 🤝 3. FRIENDS LISTENER (The Missing Piece) ---
+        // Hum apni profile sunenge, aur jaise hi 'friends' array badlega, ye trigger hoga
+        const unsubFriends = onSnapshot(doc(db, "users", user.uid), async (userSnap) => {
+            if (userSnap.exists()) {
+                const myFriendIds = userSnap.data().friends || [];
+
+                if (myFriendIds.length > 0) {
+                    // 'in' query se saare doston ka data ek sath uthao
+                    const qFriends = query(
+                        collection(db, "users"),
+                        where("uid", "in", myFriendIds)
+                    );
+
+                    const friendDocs = await getDocs(qFriends);
+                    const friendList = friendDocs.docs.map(d => d.data());
+                    setFriends(friendList);
+                } else {
+                    setFriends([]); // Agar koi dost nahi hai
+                }
+            }
+        });
+
+        return () => {
+            peer.destroy();
+            unsubFriends(); // Cleanup zaroori hai memory leak rokne ke liye
+        };
     }, [user]);
     // ==============================================================
     // 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
