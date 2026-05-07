@@ -320,22 +320,46 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 6. PEER INIT & AUTO-ANSWER
+    // 6. PEER INIT, PRESENCE & BUSY LOGIC
     // ==============================================================
     useEffect(() => {
         if (!user) return;
+
+        // Presence Logic (Online/Offline)
         const userStatusRef = ref(rtdb, `/status/${user.uid}`);
         const connectedRef = ref(rtdb, ".info/connected");
         onValue(connectedRef, (snapshot) => {
             if (snapshot.val() === false) return;
-            onDisconnect(userStatusRef).set({ state: 'offline', last_changed: rtdbTimestamp() });
-            set(userStatusRef, { state: 'online', last_changed: rtdbTimestamp() });
+            onDisconnect(userStatusRef).set({ state: 'offline', last_changed: rtdbTimestamp() })
+                .then(() => set(userStatusRef, { state: 'online', last_changed: rtdbTimestamp() }));
         });
 
-        const peer = new Peer(user.uid, { debug: 2, config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] } });
+        // PeerJS Initialization
+        const peer = new Peer(user.uid, {
+            debug: 2,
+            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
+        });
         peerInstance.current = peer;
 
         peer.on('call', async (call) => {
+            // 🔥 BUSY CHECK: Agar status 'idle' nahi hai, matlab user busy hai
+            if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
+                console.log("User is busy on another call. Rejecting...");
+
+                // 1. Call ko turant close karo bina pick kiye
+                call.answer(); // Connection initiate karne ke liye zaroori hai
+                setTimeout(() => call.close(), 500);
+
+                // 2. Caller ko batane ke liye ki tum busy ho, signal delete kardo ya busy update dalo
+                // Filhal hum signal delete kar denge taaki caller ko "Busy/Disconnected" dikhe
+                const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
+                const snap = await getDocs(q);
+                snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+
+                return; // Logic yahi stop kar do
+            }
+
+            // --- BAAKI NORMAL LOGIC (Jo pehle tha) ---
             if (callStatusRef.current === 'ringing') {
                 setTimeout(() => {
                     call.answer(myVideo.current?.srcObject);
@@ -344,7 +368,7 @@ export const VideoProvider = ({ children }) => {
                         setCallStatus('connected');
                         if (remoteVideo.current) {
                             remoteVideo.current.srcObject = remStream;
-                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play();
                         }
                     });
                     call.on('close', () => endCall());
@@ -363,13 +387,8 @@ export const VideoProvider = ({ children }) => {
             }
         });
 
-        const unsubFriends = onSnapshot(query(collection(db, "users"), where("friends", "array-contains", user.uid)), (snap) => {
-            setFriends(snap.docs.map(d => d.data()));
-        });
-
-        return () => { unsubFriends(); peer.destroy(); };
+        return () => { peer.destroy(); };
     }, [user]);
-
     // ==============================================================
     // 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
     // ==============================================================
