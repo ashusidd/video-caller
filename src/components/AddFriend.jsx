@@ -1,10 +1,11 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
-// Ab is page par Firebase ke direct imports ki zaroorat nahi kyunki sara kaam VideoContext sambhal raha hai
+// 🔥 FIX 1: Firebase imports wapas laaye kyunki request alag collection me jayegi
+import { db } from '../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AddFriend() {
-    // 🔥 FIX 1: VideoContext se apna naya 'addFriend' function nikala
-    const { searchUsers, userData, addFriend } = useContext(VideoContext);
+    const { searchUsers, userData } = useContext(VideoContext);
 
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
@@ -35,17 +36,30 @@ export default function AddFriend() {
         return () => clearTimeout(delaySearch);
     }, [query, searchUsers]);
 
-    // 🔥 FIX 2: Friend Request ki jagah Direct Add wala logic lagaya
-    const handleAddDirectly = async (targetUser) => {
+    // 🔥 FIX 2: Direct Add ko hatakar wapas Request wala logic lagaya
+    const sendRequest = async (targetUser) => {
         try {
-            // Ye seedha VideoContext mein jayega aur Firebase Firestore update karega
-            await addFriend(targetUser.uid);
+            // Check: Khud ko request toh nahi bhej rahe?
+            if (targetUser.uid === userData.uid) {
+                alert("Bhai, khud ko friend request nahi bhej sakte! 😂");
+                return;
+            }
 
-            alert(`Boom! ${targetUser.name} is now your friend! 🚀`);
+            // Firebase me 'friendRequests' me entry bhejo
+            await addDoc(collection(db, "friendRequests"), {
+                senderId: userData.uid,
+                senderName: userData.name,
+                senderPhoto: userData.photo || "",
+                receiverId: targetUser.uid,
+                status: "pending",
+                timestamp: serverTimestamp()
+            });
+
+            alert(`Friend request sent to ${targetUser.name}! 🚀`);
             setQuery('');
-            setResults([]); // Add hone ke baad search list khali kar do
+            setResults([]); // Request bhejne ke baad search list khali kar do
         } catch (err) {
-            console.error("Failed to add friend:", err);
+            console.error("Failed to send request:", err);
             alert(`Error: ${err.message}`);
         }
     };
@@ -96,11 +110,11 @@ export default function AddFriend() {
                                 </div>
                             </div>
                             <button
-                                // 🔥 FIX 3: Button dabne par apna naya function chalao
-                                onClick={() => handleAddDirectly(u)}
+                                // 🔥 FIX 3: Wapas sendRequest function laga diya
+                                onClick={() => sendRequest(u)}
                                 className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
                             >
-                                Add
+                                Request
                             </button>
                         </div>
                     ))

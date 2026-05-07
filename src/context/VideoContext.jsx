@@ -1,7 +1,6 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-// 🔥 FIX 1: 'updateDoc' aur 'arrayUnion' ko import list mein add kiya hai
 import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
@@ -67,7 +66,6 @@ export const VideoProvider = ({ children }) => {
             console.log("No user found.");
             setIsLoading(false);
             setUserData(null);
-            // 🔥 FIX 2: Logout hote hi friends list ka kachra saaf karo!
             setFriends([]);
             setSelectedFriend(null);
             return;
@@ -466,24 +464,38 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 🌟 9. ADD FRIEND FUNCTION (THE MISSING PIECE!) 🌟
+    // 🌟 9. MUTUAL FRIEND REQUEST LOGIC (TWO-WAY ADD) 🌟
     // ==============================================================
-    const addFriend = async (friendId) => {
+    const acceptFriendRequest = async (requestId, senderId) => {
         try {
             if (!user?.uid) return;
 
-            // Apne (current user) document ka reference lo
-            const myDocRef = doc(db, "users", user.uid);
-
-            // 'arrayUnion' use karne se ye friend hamesha ke liye DB mein save ho jayega
-            // aur duplicate nahi hoga!
-            await updateDoc(myDocRef, {
-                friends: arrayUnion(friendId)
+            // 1. Apne document me Sender ko add karo
+            await updateDoc(doc(db, "users", user.uid), {
+                friends: arrayUnion(senderId)
             });
 
-            console.log("Dost hamesha ke liye Firebase mein add ho gaya! 🚀");
+            // 2. Sender ke document me khud ko add karo (Dono ek dusre ki list me aayenge)
+            await updateDoc(doc(db, "users", senderId), {
+                friends: arrayUnion(user.uid)
+            });
+
+            // 3. Request accept hone ke baad pending request ko Firebase se delete karo
+            await deleteDoc(doc(db, "friendRequests", requestId));
+
+            console.log("Friend Request Accepted! Dono dost ban gaye! 🤝");
         } catch (error) {
-            console.error("Dost add karne mein error aaya:", error);
+            console.error("Dost banne me error aayi:", error);
+        }
+    };
+
+    // 🔥 EXTRA FEATURE: Request Reject karne ka function
+    const rejectFriendRequest = async (requestId) => {
+        try {
+            await deleteDoc(doc(db, "friendRequests", requestId));
+            console.log("Friend Request Rejected/Deleted.");
+        } catch (error) {
+            console.error("Error rejecting request:", error);
         }
     };
 
@@ -515,7 +527,10 @@ export const VideoProvider = ({ children }) => {
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
             setupProfile, searchUsers, saveFCMToken,
-            addFriend // 🔥 FIX 3: Is naye function ko export kar diya hai
+
+            // 🔥 Naye functions ko export kar diya hai
+            acceptFriendRequest,
+            rejectFriendRequest
         }}>
             {children}
         </VideoContext.Provider>
