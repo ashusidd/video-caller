@@ -113,7 +113,7 @@ export default function ProfileModal({ onClose }) {
 
                 {/* --- PROFESSIONAL BRANDING --- */}
                 <span className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.4em] italic opacity-50">
-                    Ashraf Ali 2026 version 1.0
+                    Ashu 2026 version 1.0
                 </span>
             </div>
         </div>

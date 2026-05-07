@@ -39,12 +39,7 @@ function App() {
   const { userData, callStatus, isLoading: videoLoading } = useContext(VideoContext);
 
   // ==============================================================
-  // 🛡️ THE ZERO-BLINK SHIELD (Double-Lock Logic)
-  // ==============================================================
-  // Hum Splash tab tak nahi hatayenge jab tak:
-  // 1. Firebase Auth load ho raha ho
-  // 2. VideoContext data fetch kar raha ho
-  // 3. Ya agar user mil gaya hai par Firestore ka data abhi 'null' hai
+  // THE ZERO-BLINK SHIELD 
   const isSyncing = authloading || videoLoading || (user && userData === null);
 
   if (isSyncing) {
@@ -61,7 +56,7 @@ function App() {
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
             <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></span>
           </div>
-          <p className="text-zinc-600 text-[9px] uppercase tracking-[0.4em] mt-4 font-bold">Secure Protocol 2.0</p>
+          <p className="text-zinc-600 text-[9px] uppercase tracking-[0.4em] mt-4 font-bold">Ashu 2026 version 1.0</p>
         </div>
       </div>
     );

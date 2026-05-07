@@ -67,8 +67,6 @@ export default function CallLogs({ filterId }) {
 
         return () => unsubscribe();
     }, [filterId, user?.uid]);
-
-    // Agar fir bhi koi permission error aaye toh ye clean UI dikhayega
     if (error) {
         return (
             <div className="text-center py-10 opacity-20">

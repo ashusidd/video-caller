@@ -1,7 +1,6 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
 import { db } from '../firebase';
-// 🔥 FIX 1: Imports update kiye - addDoc aur collection use karenge
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AddFriend() {
@@ -11,7 +10,7 @@ export default function AddFriend() {
     const [searching, setSearching] = useState(false);
 
     useEffect(() => {
-        // Debounce logic: User ke type khatam karne ka wait karega
+        // Debounce logic
         const delaySearch = setTimeout(async () => {
             const lowerQuery = query.trim().toLowerCase();
 
@@ -34,26 +33,22 @@ export default function AddFriend() {
 
         return () => clearTimeout(delaySearch);
     }, [query, searchUsers]);
-
-    // 🔥 FIX 2: sendRequest ko update kiya taaki permission error na aaye
     const sendRequest = async (targetUser) => {
         try {
-            // Kisi ki profile update karne ki jagah, friendRequests folder mein entry dalo
             await addDoc(collection(db, "friendRequests"), {
                 senderId: userData.uid,
                 senderName: userData.name,
-                senderPhoto: userData.photo || "", // UI mein dikhane kaam aayega
+                senderPhoto: userData.photo || "",
                 receiverId: targetUser.uid,
                 status: "pending",
                 timestamp: serverTimestamp()
             });
 
             alert(`Friend request sent to ${targetUser.name}!`);
-            setQuery(''); // Search bar clear
+            setQuery('');
             setResults([]);
         } catch (err) {
             console.error("Failed to send request:", err);
-            // Asli error UI par dikhega agar fail hua toh
             alert(`Error: ${err.message}`);
         }
     };
@@ -87,12 +82,10 @@ export default function AddFriend() {
                         >
                             <div className="flex items-center gap-3">
                                 <img
-                                    // 🔥 FIX: Pehle 'photo' dekhega, phir 'photoURL', aur last mein initials wala avatar
                                     src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`}
                                     className="w-8 h-8 rounded-full object-cover border border-white/10"
                                     alt={u.name}
                                     onError={(e) => {
-                                        // Agar link broken ho, toh ye initials wala backup dikhayega
                                         e.target.src = `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`;
                                     }}
                                 />

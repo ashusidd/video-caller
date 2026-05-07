@@ -1,7 +1,8 @@
 import { createContext, useEffect, useState } from "react";
-import { auth, googleProvider, db } from "../firebase"; // 'db' import karein
+import { auth, googleProvider, db, rtdb } from "../firebase";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore"; // Firestore functions import karein
+import { doc, setDoc } from "firebase/firestore";
+import { ref, set, serverTimestamp } from "firebase/database";
 
 export const AuthContext = createContext();
 
@@ -17,14 +18,11 @@ export const AuthProvider = ({ children }) => {
         return () => unsub();
     }, []);
 
-    // Login logic ko update karein
     const login = async () => {
         try {
             const result = await signInWithPopup(auth, googleProvider);
             const u = result.user;
 
-            // Yeh hai woh "A" wala logic:
-            // Naye user ka document banayega agar exist nahi karta
             await setDoc(doc(db, "users", u.uid), {
                 uid: u.uid,
                 email: u.email,
@@ -32,14 +30,30 @@ export const AuthProvider = ({ children }) => {
                 photo: u.photoURL,
                 photoURL: u.photoURL,
                 lastLogin: new Date()
-            }, { merge: true }); // { merge: true } zaroori hai
+            }, { merge: true });
 
         } catch (error) {
             console.error("Login Error:", error);
         }
     };
 
-    const logout = () => signOut(auth);
+    // Logout function
+    const logout = async () => {
+        try {
+            if (auth.currentUser) {
+                const userStatusRef = ref(rtdb, `/status/${auth.currentUser.uid}`);
+                await set(userStatusRef, {
+                    state: 'offline',
+                    last_changed: serverTimestamp(),
+                });
+            }
+
+            await signOut(auth);
+
+        } catch (error) {
+            console.error("Logout Error:", error);
+        }
+    };
 
     return (
         <AuthContext.Provider value={{ user, login, logout, loading }}>

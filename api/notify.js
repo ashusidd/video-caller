@@ -15,15 +15,11 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // Frontend se 'type' bhi nikalna zaroori hai (incoming ya missed)
     const { token, fromName, type } = req.body;
-
-    // --- CRITICAL CHANGE: notification hata kar 'data' use kar rahe hain ---
-    // Isse Service Worker ko poora control milta hai vibration aur tag handle karne ka
     const payload = {
         data: {
             fromName: fromName || "Someone",
-            type: type || "incoming", // Default 'incoming' rahega
+            type: type || "incoming",
             title: "📹 V-CALL HD",
         },
         token: token

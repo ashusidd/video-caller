@@ -19,8 +19,6 @@ export default function CallInterface() {
     } = useContext(VideoContext);
 
     const [networkSpeed, setNetworkSpeed] = useState('Excellent');
-
-    // 🔥 FIX 1: Strict Check for Video Call
     const isVideoCall = callerInfo?.callType === 'video';
 
     // Network speed monitor
@@ -54,12 +52,10 @@ export default function CallInterface() {
             <div className="fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center animate-in zoom-in duration-300">
                 <div className="relative z-10">
                     <img
-                        // 🔥 Logic: photo -> photoURL -> Initials (Fallback)
                         src={callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`}
                         className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-2xl mb-6 object-cover"
                         alt="Caller"
                         onError={(e) => {
-                            // Agar link broken ho toh initials dikhao
                             e.target.src = `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`;
                         }}
                     />
@@ -87,15 +83,12 @@ export default function CallInterface() {
     return (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
-            {/* Remote Video Stream (Dost ki screen) */}
+            {/* Remote Video Stream */}
             <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/5 flex items-center justify-center">
                 <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
-
-                {/* Placeholder: Jab Audio Call ho */}
                 {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
-                            // 🔥 Logic: Photo -> CallerInfo Photo -> photoURL -> Initials
                             src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name}&background=random&color=fff&bold=true`}
                             className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl"
                             alt="Caller"
@@ -120,8 +113,6 @@ export default function CallInterface() {
                     </div>
                 )}
             </div>
-
-            {/* 🔥 FIX 2: THE ROOT CAUSE OF MUTE BUG */}
             <div className={`relative bg-zinc-950 items-center justify-center border-t md:border-t-0 md:border-l border-white/5 ${isVideoCall ? 'flex flex-1' : 'hidden'}`}>
                 <video
                     ref={myVideo}
@@ -159,18 +150,14 @@ export default function CallInterface() {
                     >
                         <span className="relative flex items-center justify-center">
                             📹
-                            {/* The CSS Magic Red Slash */}
                             {isCameraOff && <span className="absolute w-[120%] h-[3px] bg-red-500 -rotate-45 rounded-full shadow-sm"></span>}
                         </span>
                     </button>
                 )}
-
-                {/* 📞 End Call Button */}
                 <button
                     onClick={endCall}
                     className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700 ml-2"
                 >
-                    {/* The Rotated Phone Emoji */}
                     <span className="inline-block rotate-[135deg] drop-shadow-md">📞</span>
                 </button>
             </div>
