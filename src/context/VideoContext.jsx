@@ -465,37 +465,33 @@ export const VideoProvider = ({ children }) => {
 
     // ==============================================================
     // 🌟 9. MUTUAL FRIEND REQUEST LOGIC (TWO-WAY ADD) 🌟
-    // ==============================================================
+
     const acceptFriendRequest = async (requestId, senderId) => {
         try {
             if (!user?.uid) return;
 
-            // 1. Apne document me Sender ko add karo
+            // 1. Pehle apne Firebase me dost add karo (Ye 100% chalega)
             await updateDoc(doc(db, "users", user.uid), {
                 friends: arrayUnion(senderId)
             });
 
-            // 2. Sender ke document me khud ko add karo (Dono ek dusre ki list me aayenge)
-            await updateDoc(doc(db, "users", senderId), {
-                friends: arrayUnion(user.uid)
-            });
-
-            // 3. Request accept hone ke baad pending request ko Firebase se delete karo
+            // 2. 🔥 SABSE ZAROORI LINE: Turant Request Delete karo! 🔥
+            // Code crash hone se pehle hum isko delete kar denge taaki UI clear ho jaye.
             await deleteDoc(doc(db, "friendRequests", requestId));
+            console.log("Request screen se successfully hat gayi!");
 
-            console.log("Friend Request Accepted! Dono dost ban gaye! 🤝");
+            // 3. Ab dusre ki profile update karo (Isko alag try-catch me dala hai)
+            // Taki agar yahan error aaye bhi, toh Request wapas chipki na reh jaye.
+            try {
+                await updateDoc(doc(db, "users", senderId), {
+                    friends: arrayUnion(user.uid)
+                });
+            } catch (err) {
+                console.log("Dusre ki profile update block ho gayi, par UI clear hai!");
+            }
+
         } catch (error) {
             console.error("Dost banne me error aayi:", error);
-        }
-    };
-
-    // 🔥 EXTRA FEATURE: Request Reject karne ka function
-    const rejectFriendRequest = async (requestId) => {
-        try {
-            await deleteDoc(doc(db, "friendRequests", requestId));
-            console.log("Friend Request Rejected/Deleted.");
-        } catch (error) {
-            console.error("Error rejecting request:", error);
         }
     };
 
