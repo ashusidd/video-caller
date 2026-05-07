@@ -42,7 +42,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
 
     // ==============================================================
-    // 🔗 URL PARAMETER CATCHER (For Notification Auto-Accept)
+    // 迫 URL PARAMETER CATCHER (For Notification Auto-Accept)
     // ==============================================================
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -63,7 +63,6 @@ export const VideoProvider = ({ children }) => {
         if (authloading) return;
 
         if (!user) {
-            console.log("No user found.");
             setIsLoading(false);
             setUserData(null);
             setFriends([]);
@@ -85,7 +84,6 @@ export const VideoProvider = ({ children }) => {
                 setIsLoading(false);
             }, 300);
         }, (error) => {
-            console.error("Fetch error:", error);
             setIsLoading(false);
         });
 
@@ -99,7 +97,7 @@ export const VideoProvider = ({ children }) => {
     }, [user, authloading]);
 
     // ==============================================================
-    // 2. SIGNALING BRIDGE (Incoming & Outgoing Sync)
+    // 2. SIGNALING BRIDGE
     // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
@@ -161,7 +159,7 @@ export const VideoProvider = ({ children }) => {
     }, [callStatus]);
 
     // ==============================================================
-    // 4. TIMER & MUTE SYNC
+    // 4. TIMER & MUTE SYNC (櫨 UPDATED toggleCamera)
     // ==============================================================
     useEffect(() => {
         if (callStatus === 'connected') {
@@ -186,11 +184,17 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
-    const toggleCamera = () => {
+    const toggleCamera = async () => { // 🔥 Made async
         if (myVideo.current?.srcObject) {
             const videoTrack = myVideo.current.srcObject.getVideoTracks()[0];
             if (videoTrack) {
                 const newState = !videoTrack.enabled; videoTrack.enabled = newState; setIsCameraOff(!newState);
+
+                // 🔥 SYNC: Update RTDB Status
+                if (callStatus === 'connected' && user?.uid) {
+                    await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: newState });
+                }
+
                 if (currentCall?.peerConnection) {
                     const videoSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'video');
                     if (videoSender) videoSender.track.enabled = newState;
@@ -200,25 +204,22 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC
+    // 5. CALL LOGIC (櫨 UPDATED startCall, acceptCall, endCall)
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
             setCallStatus('ringing');
-
-            setCallerInfo({
-                uid: targetUid,
-                name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"),
-                callType: isVideo ? 'video' : 'audio'
-            });
+            setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
                 myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
             }
+
+            // 🔥 SYNC: Initialize RTDB status
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
             await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
@@ -233,9 +234,7 @@ export const VideoProvider = ({ children }) => {
                 }).catch(e => console.error(e));
             }
 
-            const call = peerInstance.current.call(targetUid, stream, {
-                metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
-            });
+            const call = peerInstance.current.call(targetUid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
@@ -255,8 +254,10 @@ export const VideoProvider = ({ children }) => {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-
             setCallStatus('connected');
+
+            // 🔥 SYNC: Initialize RTDB status for acceptor
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
             setTimeout(() => {
                 if (myVideo.current) {
@@ -279,9 +280,7 @@ export const VideoProvider = ({ children }) => {
                 });
                 incomingCall.on('close', () => endCall());
             } else {
-                const call = peerInstance.current.call(callerInfo.uid, stream, {
-                    metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' }
-                });
+                const call = peerInstance.current.call(callerInfo.uid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
                 setCurrentCall(call);
                 call.on('stream', (remStream) => {
                     if (remoteVideo.current) {
@@ -291,18 +290,16 @@ export const VideoProvider = ({ children }) => {
                 });
                 call.on('close', () => endCall());
             }
-
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
-        } catch (err) {
-            isConnectingRef.current = false;
-            endCall();
-        }
+        } catch (err) { isConnectingRef.current = false; endCall(); }
     };
 
     const endCall = async () => {
         isConnectingRef.current = false;
-
         try {
+            // 🔥 SYNC: Cleanup RTDB status
+            if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
+
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
             snapIncoming.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
@@ -391,29 +388,20 @@ export const VideoProvider = ({ children }) => {
                         const friendsPromises = myFriendIds.map(async (id) => {
                             const friendDocRef = doc(db, "users", id);
                             const friendDoc = await getDoc(friendDocRef);
-
                             if (!friendDoc.exists()) return null;
-
                             return { uid: friendDoc.id, ...friendDoc.data() };
                         });
-
                         const rawFriendsData = await Promise.all(friendsPromises);
                         const cleanFriendsList = rawFriendsData.filter(friend => friend !== null);
-
                         setFriends(cleanFriendsList);
-                    } catch (error) {
-                        console.error("Friends fetch error:", error);
-                    }
+                    } catch (error) { console.error("Friends fetch error:", error); }
                 } else {
                     setFriends([]);
                 }
             }
         });
 
-        return () => {
-            peer.destroy();
-            unsubFriends();
-        };
+        return () => { peer.destroy(); unsubFriends(); };
     }, [user]);
 
     // ==============================================================
@@ -422,24 +410,12 @@ export const VideoProvider = ({ children }) => {
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
-            // 🔥 FIX 1: Sirf asli Google photo URL lo, backup yahan mat banao
             const googlePhoto = user.photoURL || "";
-
             await setDoc(doc(db, "users", user.uid), {
-                name: name,
-                username: username.toLowerCase().trim(),
-                phone: phone,
-                // Database mein sirf asli link save hoga (ya fir khali string)
-                photo: googlePhoto,
-                photoURL: googlePhoto,
-                uid: user.uid,
-                updatedAt: serverTimestamp()
+                name: name, username: username.toLowerCase().trim(), phone: phone,
+                photo: googlePhoto, photoURL: googlePhoto, uid: user.uid, updatedAt: serverTimestamp()
             }, { merge: true });
-
-            console.log("Profile Synced with Gmail Photo! 🔥");
-        } catch (error) {
-            console.error("Setup error:", error);
-        }
+        } catch (error) { console.error("Setup error:", error); }
     };
 
     // ==============================================================
@@ -449,69 +425,29 @@ export const VideoProvider = ({ children }) => {
         try {
             const term = searchTerm.toLowerCase().replace(/\s+/g, '');
             if (!term) return [];
-
             const usersRef = collection(db, "users");
-            const q = query(usersRef,
-                where("username", ">=", term),
-                where("username", "<=", term + '\uf8ff')
-            );
-
+            const q = query(usersRef, where("username", ">=", term), where("username", "<=", term + '\uf8ff'));
             const snapshot = await getDocs(q);
             const results = [];
-
-            snapshot.forEach((docSnap) => {
-                if (docSnap.id !== user.uid) {
-                    results.push({ uid: docSnap.id, ...docSnap.data() });
-                }
-            });
-
+            snapshot.forEach((docSnap) => { if (docSnap.id !== user.uid) results.push({ uid: docSnap.id, ...docSnap.data() }); });
             return results;
-        } catch (error) {
-            console.error("Search Users Error:", error);
-            return [];
-        }
+        } catch (error) { return []; }
     };
 
     // ==============================================================
-    // 9. FRIEND REQUEST LOGIC (🔥 FIX: ORIGINAL WORKING FLOW)
+    // 9. FRIEND REQUEST LOGIC
     // ==============================================================
     const acceptFriendRequest = async (requestId, senderId) => {
         try {
-            // Safety check: Agar IDs missing hain toh yahi rok do
-            if (!user?.uid || !senderId) {
-                console.error("Error: senderId ya user.uid missing hai. Button check karo!");
-                return;
-            }
-
-            // 1. Apne (Current User) account mein saamne wale ko add karo
-            await updateDoc(doc(db, "users", user.uid), {
-                friends: arrayUnion(senderId)
-            });
-
-            // 2. Request ko Request List se uda do
+            if (!user?.uid || !senderId) return;
+            await updateDoc(doc(db, "users", user.uid), { friends: arrayUnion(senderId) });
             await deleteDoc(doc(db, "friendRequests", requestId));
-
-            // 3. Saamne wale (Sender) ke account mein khud ko add karo
-            await updateDoc(doc(db, "users", senderId), {
-                friends: arrayUnion(user.uid)
-            });
-
-            console.log("Success: Dono ek dusre ki list mein add ho gaye! 🔥");
-
-        } catch (error) {
-            // Agar koi actual error aayegi toh ab clearly yahan dikhegi
-            console.error("Accept karne mein asli error ye aayi hai:", error);
-        }
+            await updateDoc(doc(db, "users", senderId), { friends: arrayUnion(user.uid) });
+        } catch (error) { console.error(error); }
     };
 
     const rejectFriendRequest = async (requestId) => {
-        try {
-            if (!requestId) return;
-            await deleteDoc(doc(db, "friendRequests", requestId));
-            console.log("Request Rejected and Removed!");
-        } catch (error) {
-            console.error("Error rejecting request:", error);
-        }
+        try { if (requestId) await deleteDoc(doc(db, "friendRequests", requestId)); } catch (error) { }
     };
 
     // ==============================================================
@@ -520,23 +456,10 @@ export const VideoProvider = ({ children }) => {
     const deleteFriend = async (friendId) => {
         try {
             if (!user?.uid || !friendId) return;
-
-            // 1. Apni list se dost ko nikalo
-            await updateDoc(doc(db, "users", user.uid), {
-                friends: arrayRemove(friendId)
-            });
-
-            // 2. Dost ki list se apna account nikalo
-            await updateDoc(doc(db, "users", friendId), {
-                friends: arrayRemove(user.uid)
-            });
-
-            console.log("Friend deleted successfully from both sides!");
-            setSelectedFriend(null); // UI clear kar do
-
-        } catch (error) {
-            console.error("Error deleting friend:", error);
-        }
+            await updateDoc(doc(db, "users", user.uid), { friends: arrayRemove(friendId) });
+            await updateDoc(doc(db, "users", friendId), { friends: arrayRemove(user.uid) });
+            setSelectedFriend(null);
+        } catch (error) { }
     };
 
     // ==============================================================
@@ -545,19 +468,9 @@ export const VideoProvider = ({ children }) => {
     const saveFCMToken = async () => {
         try {
             const messaging = getMessaging();
-            const currentToken = await getToken(messaging, {
-                vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg'
-            });
-
-            if (currentToken) {
-                await setDoc(doc(db, "users", user.uid), {
-                    fcmToken: currentToken
-                }, { merge: true });
-                console.log("FCM Token saved to DB!");
-            }
-        } catch (err) {
-            console.error('FCM Token error:', err);
-        }
+            const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
+            if (currentToken) { await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true }); }
+        } catch (err) { }
     };
 
     return (
@@ -567,9 +480,7 @@ export const VideoProvider = ({ children }) => {
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
             setupProfile, searchUsers, saveFCMToken,
-            acceptFriendRequest,
-            rejectFriendRequest,
-            deleteFriend
+            acceptFriendRequest, rejectFriendRequest, deleteFriend
         }}>
             {children}
         </VideoContext.Provider>

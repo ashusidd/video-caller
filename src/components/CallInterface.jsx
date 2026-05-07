@@ -1,5 +1,7 @@
 import { useContext, useState, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
+import { ref, onValue } from 'firebase/database'; // 🔥 Naya Import
+import { rtdb } from '../firebase'; // 🔥 Naya Import
 
 export default function CallInterface() {
     const {
@@ -19,7 +21,24 @@ export default function CallInterface() {
     } = useContext(VideoContext);
 
     const [networkSpeed, setNetworkSpeed] = useState('Excellent');
+    const [isRemoteCameraOff, setIsRemoteCameraOff] = useState(false); // 🔥 Remote camera status state
     const isVideoCall = callerInfo?.callType === 'video';
+
+    // 🔥 SYNC LOGIC: Saamne wale ka video status check karne ke liye
+    useEffect(() => {
+        if (callStatus === 'connected') {
+            const remoteUid = selectedFriend?.uid || callerInfo?.uid;
+            if (!remoteUid) return;
+
+            const statusRef = ref(rtdb, `call_status/${remoteUid}`);
+            const unsub = onValue(statusRef, (snapshot) => {
+                const data = snapshot.val();
+                // Agar data.videoEnabled false hai, toh matlab camera off hai
+                setIsRemoteCameraOff(data?.videoEnabled === false);
+            });
+            return () => unsub();
+        }
+    }, [callStatus, selectedFriend, callerInfo]);
 
     // Network speed monitor
     useEffect(() => {
@@ -81,26 +100,30 @@ export default function CallInterface() {
     return (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
-            {/* 🟢 REMOTE VIDEO (Saamne wala) - Flex-1 makes it 50% */}
+            {/* 🟢 REMOTE VIDEO (Saamne wala) */}
             <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/10 flex items-center justify-center">
+                {/* 🔥 Condition: Agar camera off hai toh video hide karo */}
                 <video
                     ref={remoteVideo}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full object-cover ${isRemoteCameraOff ? 'hidden' : 'block'}`}
                 />
 
-                {!isVideoCall && (
+                {/* 🔥 Fallback: Agar camera off ho ya voice call ho */}
+                {(isRemoteCameraOff || !isVideoCall) && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
                             src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
-                            className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl"
+                            className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl opacity-40 grayscale"
                             alt="Caller"
                             onError={(e) => {
                                 e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                             }}
                         />
-                        <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">Voice Call Active</span>
+                        <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">
+                            {isRemoteCameraOff ? 'Video is Muted' : 'Voice Call Active'}
+                        </span>
                     </div>
                 )}
 
@@ -112,7 +135,7 @@ export default function CallInterface() {
                 </div>
             </div>
 
-            {/* 🔵 LOCAL VIDEO (Meri Khud ki) - Flex-1 makes it 50% */}
+            {/* 🔵 LOCAL VIDEO (Meri Khud ki) */}
             <div className={`relative flex-1 bg-zinc-950 flex items-center justify-center ${!isVideoCall && 'hidden'}`}>
                 <video
                     ref={myVideo}
