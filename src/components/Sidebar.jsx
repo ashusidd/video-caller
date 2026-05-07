@@ -37,11 +37,11 @@ function FriendItem({ friend, isSelected, onClick }) {
 
             <div className="relative shrink-0">
                 <img
-                    src={friend?.photo || friend?.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random&color=fff`}
+                    src={friend?.photo || friend?.photoURL || `https://ui-avatars.com/api/?name=${friend?.name || 'U'}&background=random&color=fff&length=1`}
                     className="w-12 h-12 rounded-full object-cover border border-white/5"
-                    alt={displayName}
+                    alt={friend?.name || "User"}
                     onError={(e) => {
-                        e.target.src = `https://ui-avatars.com/api/?name=${displayName}&background=random&color=fff`;
+                        e.target.src = `https://ui-avatars.com/api/?name=${friend?.name || 'U'}&background=random&color=fff&length=1`;
                     }}
                 />
 

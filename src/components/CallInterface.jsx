@@ -52,11 +52,13 @@ export default function CallInterface() {
             <div className="fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center animate-in zoom-in duration-300">
                 <div className="relative z-10">
                     <img
-                        src={callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`}
+                        src={callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+
                         className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-2xl mb-6 object-cover"
                         alt="Caller"
+
                         onError={(e) => {
-                            e.target.src = `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`;
+                            e.target.src = `https://ui-avatars.com/api/?name=${callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                         }}
                     />
                     <div className="absolute -bottom-2 -right-2 bg-blue-500 p-2.5 rounded-full shadow-lg">
@@ -89,11 +91,13 @@ export default function CallInterface() {
                 {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
-                            src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name}&background=random&color=fff&bold=true`}
+                            src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+
                             className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl"
                             alt="Caller"
+
                             onError={(e) => {
-                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name}&background=random&color=fff&bold=true`;
+                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                             }}
                         />
                         <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">Voice Call Active</span>
@@ -124,7 +128,18 @@ export default function CallInterface() {
 
                 {isCameraOff && (
                     <div className="absolute inset-0 bg-[#0b141a] flex items-center justify-center">
-                        <img src={userData?.photo || 'https://via.placeholder.com/150'} className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale" />
+                        <img
+                            src={userData?.photo || userData?.photoURL || `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+
+                            className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale"
+
+                            alt="My Profile"
+
+                            onError={(e) => {
+                                // Link kharab hone par 1 letter avatar
+                                e.target.src = `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
+                            }}
+                        />
                     </div>
                 )}
             </div>

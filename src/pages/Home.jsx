@@ -75,11 +75,13 @@ export default function Home() {
 
                     <div className="relative">
                         <img
-                            src={selectedFriend?.photo || selectedFriend?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'User'}&background=random&color=fff`}
+                            src={selectedFriend?.photo || selectedFriend?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'U'}&background=random&color=fff&length=1`}
+
                             className="w-10 h-10 rounded-full object-cover border border-white/10"
                             alt={selectedFriend?.name || "Friend"}
+
                             onError={(e) => {
-                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'User'}&background=random&color=fff`;
+                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || 'U'}&background=random&color=fff&length=1`;
                             }}
                         />
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#202c33] transition-all duration-500 ${status === 'online' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-zinc-500'}`}></div>

@@ -93,11 +93,13 @@ export default function AddFriend() {
                         >
                             <div className="flex items-center gap-3">
                                 <img
-                                    src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`}
+                                    src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+
                                     className="w-8 h-8 rounded-full object-cover border border-white/10"
-                                    alt={u.name}
+                                    alt={u.name || "User"}
+
                                     onError={(e) => {
-                                        e.target.src = `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`;
+                                        e.target.src = `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                                     }}
                                 />
                                 <div className="flex flex-col">

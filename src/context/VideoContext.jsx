@@ -417,25 +417,26 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 7. PROFILE SETUP FUNCTION
+    // 7. PROFILE SETUP FUNCTION (Gmail Pic Priority Fix)
     // ==============================================================
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
         try {
+            // 🔥 FIX 1: Sirf asli Google photo URL lo, backup yahan mat banao
             const googlePhoto = user.photoURL || "";
-            const backupAvatar = `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`;
 
             await setDoc(doc(db, "users", user.uid), {
                 name: name,
                 username: username.toLowerCase().trim(),
                 phone: phone,
-                photo: googlePhoto || backupAvatar,
-                photoURL: googlePhoto || backupAvatar,
+                // Database mein sirf asli link save hoga (ya fir khali string)
+                photo: googlePhoto,
+                photoURL: googlePhoto,
                 uid: user.uid,
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
-            console.log("Profile Synced!");
+            console.log("Profile Synced with Gmail Photo! 🔥");
         } catch (error) {
             console.error("Setup error:", error);
         }

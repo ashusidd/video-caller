@@ -38,13 +38,13 @@ export default function ProfileModal({ onClose }) {
             {/* Header: Photo and ID */}
             <div className="bg-[#202c33] p-6 flex flex-col items-center justify-center border-b border-white/5">
                 <img
-                    // 🔥 Sabse solid logic: Pehle DB ki 'photo', phir Google ki 'photoURL', phir initials
-                    src={userData?.photo || userData?.photoURL || `https://ui-avatars.com/api/?name=${userData?.name}&background=random&color=fff`}
+                    src={userData?.photo || userData?.photoURL || `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+
                     className="w-20 h-20 rounded-full object-cover border-4 border-[#111b21] shadow-lg mb-3"
-                    alt={userData?.name}
+                    alt={userData?.name || "User"}
+
                     onError={(e) => {
-                        // Agar link broken ho, toh ye backup avatar dikhayega
-                        e.target.src = `https://ui-avatars.com/api/?name=${userData?.name}&background=random&color=fff`;
+                        e.target.src = `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                     }}
                 />
                 <span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded uppercase tracking-widest font-mono">
