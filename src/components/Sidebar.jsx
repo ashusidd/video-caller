@@ -9,7 +9,8 @@ function FriendItem({ friend, isSelected, onClick }) {
     const [status, setStatus] = useState('offline');
 
     useEffect(() => {
-        if (!friend.uid) return;
+        // 🔥 FIX 1: Safety Check - Agar dost ki ID hi nahi hai toh wapas jao
+        if (!friend?.uid) return;
 
         // RTDB se is friend ka status path pakdo
         const statusRef = ref(rtdb, `/status/${friend.uid}`);
@@ -23,7 +24,11 @@ function FriendItem({ friend, isSelected, onClick }) {
         });
 
         return () => unsub();
-    }, [friend.uid]);
+    }, [friend?.uid]);
+
+    // 🔥 FIX 2: UI mein har jagah '?.' (Optional Chaining) lagaya taaki crash na ho
+    const displayName = friend?.name || "Unknown User";
+    const displayUsername = friend?.username || "unknown";
 
     return (
         <div onClick={onClick}
@@ -32,13 +37,11 @@ function FriendItem({ friend, isSelected, onClick }) {
 
             <div className="relative shrink-0">
                 <img
-                    // 🔥 FIX: Pehle 'photo' dekhega, agar nahi hai toh 'photoURL', warna initials wala avatar
-                    src={friend.photo || friend.photoURL || `https://ui-avatars.com/api/?name=${friend.name}&background=random&color=fff`}
+                    src={friend?.photo || friend?.photoURL || `https://ui-avatars.com/api/?name=${displayName}&background=random&color=fff`}
                     className="w-12 h-12 rounded-full object-cover border border-white/5"
-                    alt={friend.name}
+                    alt={displayName}
                     onError={(e) => {
-                        // Agar link broken ho (photo load na ho), toh initials wala avatar backup mein dalo
-                        e.target.src = `https://ui-avatars.com/api/?name=${friend.name}&background=random&color=fff`;
+                        e.target.src = `https://ui-avatars.com/api/?name=${displayName}&background=random&color=fff`;
                     }}
                 />
 
@@ -50,9 +53,9 @@ function FriendItem({ friend, isSelected, onClick }) {
             </div>
 
             <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-zinc-100 truncate">{friend.name}</p>
+                <p className="text-sm font-bold text-zinc-100 truncate">{displayName}</p>
                 <div className="flex items-center gap-1.5">
-                    <p className="text-[11px] text-zinc-500 truncate italic font-mono">@{friend.username}</p>
+                    <p className="text-[11px] text-zinc-500 truncate italic font-mono">@{displayUsername}</p>
                     <span className={`text-[9px] font-black uppercase tracking-tighter ${status === 'online' ? 'text-green-500 animate-pulse' : 'text-zinc-600'}`}>
                         • {status}
                     </span>
@@ -71,14 +74,24 @@ export default function Sidebar() {
     const isChatOpen = location.pathname.startsWith('/chat/');
 
     const handleFriendClick = (friend) => {
+        if (!friend?.uid) return;
         setSelectedFriend(friend);
         navigate(`/chat/${friend.uid}`);
     };
 
-    const filteredFriends = friends?.filter(friend =>
-        friend.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        friend.username.toLowerCase().includes(searchQuery.toLowerCase())
-    ) || [];
+    // 🔥 FIX 3: THE CRASH KILLER - Search filter ko safe banaya
+    const filteredFriends = friends?.filter(friend => {
+        // Agar friend null hai toh hata do
+        if (!friend) return false;
+
+        // Safety Fallback (Agar name/username missing ho DB mein toh crash na ho)
+        const safeName = friend?.name || "";
+        const safeUsername = friend?.username || "";
+        const query = searchQuery.toLowerCase();
+
+        return safeName.toLowerCase().includes(query) ||
+            safeUsername.toLowerCase().includes(query);
+    }) || [];
 
     return (
         <div className={`
@@ -116,9 +129,9 @@ export default function Sidebar() {
                         {filteredFriends.length > 0 ? (
                             filteredFriends.map(friend => (
                                 <FriendItem
-                                    key={friend.uid}
+                                    key={friend?.uid || Math.random()} // Saftey for missing UID
                                     friend={friend}
-                                    isSelected={location.pathname === `/chat/${friend.uid}`}
+                                    isSelected={location.pathname === `/chat/${friend?.uid}`}
                                     onClick={() => handleFriendClick(friend)}
                                 />
                             ))
