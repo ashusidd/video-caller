@@ -396,13 +396,46 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // ==============================================================
+    // 8. SEARCH USERS FUNCTION
+    // ==============================================================
+    const searchUsers = async (searchTerm) => {
+        try {
+            // Space hatakar small letters mein convert karo (jaise database mein hai)
+            const term = searchTerm.toLowerCase().replace(/\s+/g, '');
+            if (!term) return [];
+
+            const usersRef = collection(db, "users");
+            // Ye query us username ko dhoondhegi jo type kiye hue letters se start hota hai
+            const q = query(usersRef,
+                where("username", ">=", term),
+                where("username", "<=", term + '\uf8ff')
+            );
+
+            const snapshot = await getDocs(q);
+            const results = [];
+
+            snapshot.forEach((docSnap) => {
+                // Khud ki profile ko search result mein mat dikhao
+                if (docSnap.id !== user.uid) {
+                    results.push({ uid: docSnap.id, ...docSnap.data() });
+                }
+            });
+
+            return results;
+        } catch (error) {
+            console.error("Search Users Error:", error);
+            return [];
+        }
+    };
+
     return (
         <VideoContext.Provider value={{
             userData, isLoading, friends, selectedFriend, setSelectedFriend,
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
-            setupProfile // 🔥 FIX 3: Context Provider mein function pass kar diya
+            setupProfile, searchUsers
         }}>
             {children}
         </VideoContext.Provider>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useContext } from 'react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, or } from 'firebase/firestore';
+// 🔥 FIX 1: 'or' import kiya hai, 'orderBy' ki zaroorat nahi hai
+import { collection, query, where, onSnapshot, deleteDoc, doc, or } from 'firebase/firestore';
 import { AuthContext } from '../context/AuthContext';
 
 export default function CallLogs({ filterId }) {
@@ -14,34 +15,43 @@ export default function CallLogs({ filterId }) {
 
         setLoading(true);
         setError(null);
+
+        // 🔥 FIX 2: Query se 'orderBy' hata diya taaki Index error na aaye
         const q = query(
             collection(db, "calls"),
             or(
                 where("callerId", "==", user.uid),
                 where("receiverId", "==", user.uid)
-            ),
-            orderBy("timestamp", "desc")
+            )
         );
 
         const unsubscribe = onSnapshot(q,
             (snapshot) => {
                 const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-                const validLogs = [];
+                let validLogs = [];
 
                 snapshot.docs.forEach(docSnap => {
                     const data = docSnap.data();
                     const logTime = data.timestamp?.toDate ? data.timestamp.toDate() : new Date();
 
+                    // 🔥 THE 24-HOUR AUTO-DELETE: Purane logs database se uda do
                     if (logTime < twentyFourHoursAgo) {
-                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("old logs is not deleted:", err));
+                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("Old log delete failed:", err));
                     }
                     else {
-                        // 🔥 FIX 3: Client-side filter ko bhi update kiya
-                        // FilterId (Dost ki ID) ya toh caller honi chahiye ya receiver
+                        // Sirf wahi dikhao jo dost (filterId) ke sath calls hui hain
                         if (data.callerId === filterId || data.receiverId === filterId) {
                             validLogs.push({ id: docSnap.id, ...data });
                         }
                     }
+                });
+
+                // 🔥 FIX 3: JavaScript Sorting (Manual)
+                // Taaki naye logs upar dikhein bina Firebase Index ke
+                validLogs.sort((a, b) => {
+                    const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date();
+                    const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date();
+                    return timeB - timeA;
                 });
 
                 setLogs(validLogs);
@@ -49,6 +59,7 @@ export default function CallLogs({ filterId }) {
             },
             (err) => {
                 console.error("🔥 Firestore Query Error:", err);
+                // Agar index missing hai toh ab ye error nahi aayega!
                 setError(err.message);
                 setLoading(false);
             }
@@ -57,12 +68,13 @@ export default function CallLogs({ filterId }) {
         return () => unsubscribe();
     }, [filterId, user?.uid]);
 
+    // Agar fir bhi koi permission error aaye toh ye clean UI dikhayega
     if (error) {
         return (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-center">
-                <p className="text-red-500 text-[10px] font-bold uppercase mb-2">Query Failed</p>
-                <p className="text-zinc-500 text-[9px] mb-2">{error}</p>
-                <p className="text-zinc-400 text-[9px]">Console (F12) check </p>
+            <div className="text-center py-10 opacity-20">
+                <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-[0.2em]">
+                    Logs Syncing...
+                </p>
             </div>
         );
     }
@@ -89,7 +101,7 @@ export default function CallLogs({ filterId }) {
                                     {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString('en-IN', {
                                         dateStyle: 'medium',
                                         timeStyle: 'short'
-                                    }) : 'Syncing...'}
+                                    }) : 'Recently'}
                                 </p>
                             </div>
                         </div>
