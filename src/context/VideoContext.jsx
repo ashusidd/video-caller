@@ -41,6 +41,29 @@ export const VideoProvider = ({ children }) => {
 
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
 
+    const saveCallLog = async (remoteId, remoteName, type, status) => {
+        if (!user) return; //
+        try {
+            // Current time mein 24 hours add karo
+            const expiryDate = new Date();
+            expiryDate.setHours(expiryDate.getHours() + 24);
+
+            await addDoc(collection(db, "calls"), {
+                callerId: user.uid,
+                callerName: userData?.name || "User",
+                receiverId: remoteId,
+                receiverName: remoteName,
+                type: type, // 'video' ya 'audio'
+                status: status, // 'completed' ya 'missed'
+                timestamp: serverTimestamp(),
+                expiresAt: expiryDate, // 🔥 Ye TTL field hai
+                users: [user.uid, remoteId] // Query asaan karne ke liye
+            });
+        } catch (e) {
+            console.error("Log save error:", e);
+        }
+    };
+
     // ==============================================================
     // 迫 URL PARAMETER CATCHER (For Notification Auto-Accept)
     // ==============================================================
@@ -238,6 +261,13 @@ export const VideoProvider = ({ children }) => {
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
+            // 30 seconds ka timer: Agar status tab bhi 'ringing' hai toh endCall() chala do
+            setTimeout(() => {
+                if (callStatusRef.current === 'ringing') {
+                    endCall();
+                }
+            }, 30000);
+
             call.on('stream', (remStream) => {
                 setCallStatus('connected');
                 if (remoteVideo.current) {
@@ -295,7 +325,17 @@ export const VideoProvider = ({ children }) => {
     };
 
     const endCall = async () => {
-        isConnectingRef.current = false;
+        // 1. Log save karne ka logic (status clear hone se pehle)
+        if (callStatusRef.current !== 'idle') {
+            const isMissed = callStatusRef.current === 'ringing' || callStatusRef.current === 'receiving';
+            const remoteId = selectedFriend?.uid || callerInfo?.uid;
+            const remoteName = selectedFriend?.name || callerInfo?.name;
+            const callType = callerInfo?.callType || 'video';
+
+            if (remoteId) {
+                saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
+            }
+        }
         try {
             // 🔥 SYNC: Cleanup RTDB status
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
