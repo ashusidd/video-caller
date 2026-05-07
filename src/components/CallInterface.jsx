@@ -53,7 +53,16 @@ export default function CallInterface() {
         return (
             <div className="fixed inset-0 z-[999] bg-zinc-950 flex flex-col items-center justify-center animate-in zoom-in duration-300">
                 <div className="relative z-10">
-                    <img src={callerInfo?.photo || 'https://via.placeholder.com/150'} className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-2xl mb-6 object-cover" />
+                    <img
+                        // 🔥 Logic: photo -> photoURL -> Initials (Fallback)
+                        src={callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`}
+                        className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-2xl mb-6 object-cover"
+                        alt="Caller"
+                        onError={(e) => {
+                            // Agar link broken ho toh initials dikhao
+                            e.target.src = `https://ui-avatars.com/api/?name=${callerInfo?.name || 'User'}&background=random&color=fff&bold=true`;
+                        }}
+                    />
                     <div className="absolute -bottom-2 -right-2 bg-blue-500 p-2.5 rounded-full shadow-lg">
                         {isAudioCall ? '📞' : '📹'}
                     </div>
@@ -85,7 +94,15 @@ export default function CallInterface() {
                 {/* Placeholder: Jab Audio Call ho */}
                 {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
-                        <img src={selectedFriend?.photo || callerInfo?.photo || 'https://via.placeholder.com/150'} className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl" />
+                        <img
+                            // 🔥 Logic: Photo -> CallerInfo Photo -> photoURL -> Initials
+                            src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name}&background=random&color=fff&bold=true`}
+                            className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl"
+                            alt="Caller"
+                            onError={(e) => {
+                                e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name}&background=random&color=fff&bold=true`;
+                            }}
+                        />
                         <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">Voice Call Active</span>
                     </div>
                 )}
