@@ -32,14 +32,20 @@ function FriendItem({ friend, isSelected, onClick }) {
 
             <div className="relative shrink-0">
                 <img
-                    src={friend.photo || 'https://via.placeholder.com/150'}
+                    // 🔥 FIX: Pehle 'photo' dekhega, agar nahi hai toh 'photoURL', warna initials wala avatar
+                    src={friend.photo || friend.photoURL || `https://ui-avatars.com/api/?name=${friend.name}&background=random&color=fff`}
                     className="w-12 h-12 rounded-full object-cover border border-white/5"
-                    alt=""
+                    alt={friend.name}
+                    onError={(e) => {
+                        // Agar link broken ho (photo load na ho), toh initials wala avatar backup mein dalo
+                        e.target.src = `https://ui-avatars.com/api/?name=${friend.name}&background=random&color=fff`;
+                    }}
                 />
+
                 {/* Indicator Dot with Neon Glow */}
                 <div className={`absolute bottom-0.5 right-0.5 w-3.5 h-3.5 border-2 border-[#111b21] rounded-full transition-colors duration-500 ${status === 'online'
-                    ? 'bg-green-500 shadow-[0_0_8px_#22c55e]'
-                    : 'bg-zinc-600'
+                        ? 'bg-green-500 shadow-[0_0_8px_#22c55e]'
+                        : 'bg-zinc-600'
                     }`}></div>
             </div>
 

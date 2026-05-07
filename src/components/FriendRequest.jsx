@@ -60,9 +60,14 @@ export default function FriendRequest() {
                     <div key={req.id} className="flex items-center justify-between bg-zinc-900/80 p-3 rounded-2xl border border-white/5 shadow-xl">
                         <div className="flex items-center gap-3">
                             <img
-                                src={req.senderPhoto || 'https://via.placeholder.com/150'}
+                                // 🔥 Sabse behtar logic: Agar senderPhoto nahi hai, toh initials avatar dikhao
+                                src={req.senderPhoto || `https://ui-avatars.com/api/?name=${req.senderName}&background=random&color=fff`}
                                 className="w-8 h-8 rounded-full border border-white/10 object-cover"
                                 alt={req.senderName}
+                                onError={(e) => {
+                                    // Agar image URL invalid hai ya load nahi ho raha, toh backup avatar
+                                    e.target.src = `https://ui-avatars.com/api/?name=${req.senderName}&background=random&color=fff`;
+                                }}
                             />
                             <div className="flex flex-col">
                                 <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">

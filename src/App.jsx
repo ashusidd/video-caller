@@ -36,7 +36,7 @@ function CallHandler() {
 }
 
 function App() {
-  const { user } = useContext(AuthContext);
+  const { user, loading: authloading } = useContext(AuthContext);
   const { userData, callStatus, isLoading } = useContext(VideoContext);
 
   // ==============================================================
@@ -44,7 +44,7 @@ function App() {
   // ==============================================================
   // Jab tak Firestore se data nahi milta, tab tak Onboarding ya Home 
   // render hi nahi honge. Sirf Splash dikhega.
-  if (isLoading) {
+  if (authloading || isLoading) {
     return (
       <div className="h-[100dvh] bg-black flex items-center justify-center">
         <div className="flex flex-col items-center">

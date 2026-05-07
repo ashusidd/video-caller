@@ -9,7 +9,7 @@ import { getMessaging, getToken } from 'firebase/messaging';
 export const VideoContext = createContext();
 
 export const VideoProvider = ({ children }) => {
-    const { user } = useContext(AuthContext);
+    const { user, loading: authloading } = useContext(AuthContext);
     const [userData, setUserData] = useState(null);
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
@@ -60,8 +60,12 @@ export const VideoProvider = ({ children }) => {
     // 1. DATA FETCHING & PERMISSION
     // ==============================================================
     useEffect(() => {
+        if (authloading) return;
+
         if (!user) {
+            console.log("No user found.");
             setIsLoading(false);
+            setUserData(null);
             return;
         }
 
@@ -89,7 +93,7 @@ export const VideoProvider = ({ children }) => {
         const unsubRequests = onSnapshot(qReq, (snap) => setRequestCount(snap.size));
 
         return () => { unsubUser(); unsubRequests(); };
-    }, [user]);
+    }, [user, authloading]);
 
     // ==============================================================
     // 2. SIGNALING BRIDGE (Incoming & Outgoing Sync)
@@ -417,26 +421,28 @@ export const VideoProvider = ({ children }) => {
     // ==============================================================
 
     const setupProfile = async (name, username, phone) => {
-        if (!user) throw new Error("User not logged!");
+        if (!user) return;
 
         try {
-            // 🟢 Placeholder image agar user ki photo nahi hai
-            const defaultAvatar = `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`;
+            // 🟢 Logic: Agar Google se photoURL mil rahi hai toh wahi use karo
+            // Warna ek backup avatar initials ke saath bana lo
+            const googlePhoto = user.photoURL || "";
+            const backupAvatar = `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`;
 
             await setDoc(doc(db, "users", user.uid), {
                 name: name,
-                username: username.toLowerCase(), // Hamesha lowercase rakho search ke liye
+                username: username.toLowerCase().trim(),
                 phone: phone,
-                // Agar user.photoURL hai toh wahi, warna default avatar
-                photo: user.photoURL || defaultAvatar,
+                // 🔥 Dono fields ko same rakho taaki confusion na ho
+                photo: googlePhoto || backupAvatar,
+                photoURL: googlePhoto || backupAvatar,
                 uid: user.uid,
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
-            console.log("Profile setup completed with photo!");
+            console.log("Profile Synced!");
         } catch (error) {
-            console.error("Profile save error:", error);
-            throw error;
+            console.error("Setup error:", error);
         }
     };
     // ==============================================================

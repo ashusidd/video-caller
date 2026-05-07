@@ -87,9 +87,14 @@ export default function AddFriend() {
                         >
                             <div className="flex items-center gap-3">
                                 <img
-                                    src={u.photo || 'https://via.placeholder.com/150'}
+                                    // 🔥 FIX: Pehle 'photo' dekhega, phir 'photoURL', aur last mein initials wala avatar
+                                    src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`}
                                     className="w-8 h-8 rounded-full object-cover border border-white/10"
                                     alt={u.name}
+                                    onError={(e) => {
+                                        // Agar link broken ho, toh ye initials wala backup dikhayega
+                                        e.target.src = `https://ui-avatars.com/api/?name=${u.name}&background=random&color=fff`;
+                                    }}
                                 />
                                 <div className="flex flex-col">
                                     <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">
