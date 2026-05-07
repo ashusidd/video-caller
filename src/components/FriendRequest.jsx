@@ -1,6 +1,7 @@
 import { useContext, useEffect, useState } from 'react';
 import { db } from '../firebase';
-import { doc, onSnapshot, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+// 🔥 FIX 1: Naye imports add kiye (collection, query, where, deleteDoc)
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { AuthContext } from '../context/AuthContext';
 
 export default function FriendRequest() {
@@ -10,50 +11,42 @@ export default function FriendRequest() {
     useEffect(() => {
         if (!user) return;
 
-        // Real-time listener aapke profile document par
-        const unsub = onSnapshot(doc(db, "users", user.uid), async (d) => {
-            const reqIds = d.data()?.incomingRequests || [];
+        // 🔥 FIX 2: Ab hum users profile nahi, direct friendRequests collection sunenge
+        const q = query(
+            collection(db, "friendRequests"),
+            where("receiverId", "==", user.uid),
+            where("status", "==", "pending")
+        );
 
-            // Sirf tabhi fetch karein jab IDs list mein hon
-            if (reqIds.length > 0) {
-                const reqDocs = await Promise.all(
-                    reqIds.map(async (id) => {
-                        const u = await getDoc(doc(db, "users", id));
-                        return u.exists() ? { ...u.data(), uid: id } : null;
-                    })
-                );
-                // null values ko filter karke state update
-                setIncoming(reqDocs.filter(u => u !== null));
-            } else {
-                setIncoming([]);
-            }
+        const unsub = onSnapshot(q, (snapshot) => {
+            const requests = [];
+            snapshot.forEach((docSnap) => {
+                requests.push({ id: docSnap.id, ...docSnap.data() });
+            });
+            setIncoming(requests);
         });
 
         return () => unsub();
     }, [user]);
 
-    const accept = async (senderId) => {
+    const accept = async (request) => {
         try {
+            // 1. Apni profile ki friend list mein usko add karo
             const myRef = doc(db, "users", user.uid);
-            const senderRef = doc(db, "users", senderId);
-
-            // 1. Apni list se request hatao aur friend add karo
             await updateDoc(myRef, {
-                friends: arrayUnion(senderId),
-                incomingRequests: arrayRemove(senderId)
+                friends: arrayUnion(request.senderId)
             });
 
-            // 2. Samne wale ki list mein humein add karo
-            await updateDoc(senderRef, {
-                friends: arrayUnion(user.uid)
-            });
+            // 2. Dusre ki profile hum update nahi kar sakte (Security Rules block kar denge)
+            // Isliye hum seedha is Request ko DataBase se Delete (Accept) kar denge taaki UI clean ho jaye
+            await deleteDoc(doc(db, "friendRequests", request.id));
 
         } catch (error) {
             console.error("Accept failed:", error);
+            alert("Bhai internet issue lag raha hai, accept nahi hua!");
         }
     };
 
-    // Agar koi request nahi hai toh ye pura component hi hide ho jayega
     if (incoming.length === 0) return null;
 
     return (
@@ -63,27 +56,27 @@ export default function FriendRequest() {
             </h3>
 
             <div className="space-y-3">
-                {incoming.map(u => (
-                    <div key={u.uid} className="flex items-center justify-between bg-zinc-900/80 p-3 rounded-2xl border border-white/5 shadow-xl">
+                {incoming.map(req => (
+                    <div key={req.id} className="flex items-center justify-between bg-zinc-900/80 p-3 rounded-2xl border border-white/5 shadow-xl">
                         <div className="flex items-center gap-3">
-                            {/* Profile Picture bhi dikhayenge IMO style mein */}
                             <img
-                                src={u.photo || 'https://via.placeholder.com/150'}
-                                className="w-8 h-8 rounded-full border border-white/10"
-                                alt=""
+                                src={req.senderPhoto || 'https://via.placeholder.com/150'}
+                                className="w-8 h-8 rounded-full border border-white/10 object-cover"
+                                alt={req.senderName}
                             />
                             <div className="flex flex-col">
-                                <span className="text-[10px] font-black uppercase italic tracking-tighter">
-                                    {u.name}
+                                <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">
+                                    {req.senderName}
                                 </span>
                                 <span className="text-[8px] text-zinc-500 font-bold uppercase">
-                                    @{u.username}
+                                    {/* Agar username save nahi hua tha request mein, toh naam se fallback banayenge */}
+                                    @{req.senderName.replace(/\s+/g, '').toLowerCase()}
                                 </span>
                             </div>
                         </div>
 
                         <button
-                            onClick={() => accept(u.uid)}
+                            onClick={() => accept(req)}
                             className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all active:scale-90 shadow-lg shadow-blue-600/20"
                         >
                             Accept

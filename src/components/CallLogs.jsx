@@ -1,7 +1,6 @@
 import { useEffect, useState, useContext } from 'react';
 import { db } from '../firebase';
-// 🔥 IMPORT MEIN 'deleteDoc' AUR 'doc' ADD KIYA HAI
-import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, deleteDoc, doc, or } from 'firebase/firestore';
 import { AuthContext } from '../context/AuthContext';
 
 export default function CallLogs({ filterId }) {
@@ -15,33 +14,31 @@ export default function CallLogs({ filterId }) {
 
         setLoading(true);
         setError(null);
-
-        // Query logic
         const q = query(
             collection(db, "calls"),
-            where("participants", "array-contains", user.uid),
+            or(
+                where("callerId", "==", user.uid),
+                where("receiverId", "==", user.uid)
+            ),
             orderBy("timestamp", "desc")
         );
 
         const unsubscribe = onSnapshot(q,
             (snapshot) => {
-                // 🔥 THE 24-HOUR FIX: Aaj se theek 24 ghante pehle ka time
                 const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
                 const validLogs = [];
 
                 snapshot.docs.forEach(docSnap => {
                     const data = docSnap.data();
-
-                    // Agar timestamp fetch nahi hua toh current time maan lo (error se bachne ke liye)
                     const logTime = data.timestamp?.toDate ? data.timestamp.toDate() : new Date();
 
-                    // Agar log 24 ghante se purana hai -> Usko DATABASE SE UDA DO! 🗑️
                     if (logTime < twentyFourHoursAgo) {
-                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("Purana log delete nahi hua:", err));
+                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("old logs is not deleted:", err));
                     }
-                    // Agar naya log hai -> Usko UI mein dikhane ke liye array mein daal do
                     else {
-                        if (data.participants && data.participants.includes(filterId)) {
+                        // 🔥 FIX 3: Client-side filter ko bhi update kiya
+                        // FilterId (Dost ki ID) ya toh caller honi chahiye ya receiver
+                        if (data.callerId === filterId || data.receiverId === filterId) {
                             validLogs.push({ id: docSnap.id, ...data });
                         }
                     }
@@ -60,13 +57,12 @@ export default function CallLogs({ filterId }) {
         return () => unsubscribe();
     }, [filterId, user?.uid]);
 
-    // 1. Agar koi error aaye (Index missing error yahan dikhega)
     if (error) {
         return (
             <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-center">
                 <p className="text-red-500 text-[10px] font-bold uppercase mb-2">Query Failed</p>
                 <p className="text-zinc-500 text-[9px] mb-2">{error}</p>
-                <p className="text-zinc-400 text-[9px]">Console (F12) check karo aur blue link par click karke index banao!</p>
+                <p className="text-zinc-400 text-[9px]">Console (F12) check </p>
             </div>
         );
     }

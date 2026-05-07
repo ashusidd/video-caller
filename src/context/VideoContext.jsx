@@ -371,8 +371,9 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 🔥 FIX 2: 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
+    // 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
     // ==============================================================
+
     const setupProfile = async (name, username, phone) => {
         if (!user) {
             throw new Error("User not logged!");
@@ -381,11 +382,12 @@ export const VideoProvider = ({ children }) => {
         try {
             await setDoc(doc(db, "users", user.uid), {
                 name: name,
-                username: username, // 🟢 Ab username 100% save hoga
+                username: username,
                 phone: phone,
+                photo: user.photoURL || "",
                 uid: user.uid,
                 updatedAt: serverTimestamp()
-            }, { merge: true }); // merge: true se baaki data (email wagerah) safe rahega
+            }, { merge: true });
 
             console.log("Profile setup completed!");
         } catch (error) {

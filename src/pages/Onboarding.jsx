@@ -1,11 +1,15 @@
 import { useState, useContext } from 'react';
 import { VideoContext } from '../context/VideoContext';
+import { AuthContext } from '../context/AuthContext'; // 🔥 NAYA IMPORT: Logout logic ke liye
+
 // 🔥 Firebase imports
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function Onboarding() {
     const { setupProfile } = useContext(VideoContext);
+    const { logout } = useContext(AuthContext); // 🔥 LOGOUT FUNCTION NIKALA
+
     const [form, setForm] = useState({ name: '', username: '', phone: '' });
 
     // UI states manage karne ke liye
@@ -108,6 +112,15 @@ export default function Onboarding() {
                         }`}
                 >
                     {isChecking ? 'Checking...' : 'Create Account'}
+                </button>
+
+                {/* 🔥 NAYA ESCAPE ROUTE (LOGOUT BUTTON) */}
+                <button
+                    type="button" // Type 'button' zaroori hai warna form submit ho jayega
+                    onClick={logout}
+                    className="w-full py-3 text-[10px] text-zinc-500 hover:text-red-500 font-black uppercase tracking-[0.2em] transition-colors"
+                >
+                    Cancel & Logout
                 </button>
 
             </form>

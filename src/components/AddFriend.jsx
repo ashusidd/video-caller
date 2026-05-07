@@ -1,7 +1,8 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
 import { db } from '../firebase';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
+// 🔥 FIX 1: Imports update kiye - addDoc aur collection use karenge
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AddFriend() {
     const { searchUsers, userData } = useContext(VideoContext);
@@ -15,38 +16,45 @@ export default function AddFriend() {
             const lowerQuery = query.trim().toLowerCase();
 
             if (lowerQuery.length >= 2) {
-                setSearching(true); // Spinner ON
+                setSearching(true);
                 try {
-                    // Firestore se users fetch karega (Self-profile excluded)
                     const users = await searchUsers(lowerQuery);
                     setResults(users);
                 } catch (error) {
                     console.error("Search error:", error);
                     setResults([]);
                 } finally {
-                    // Spinner OFF: Chahe result mile ya error aaye
                     setSearching(false);
                 }
             } else {
                 setResults([]);
                 setSearching(false);
             }
-        }, 400); // 400ms delay for stability
+        }, 400);
 
         return () => clearTimeout(delaySearch);
     }, [query, searchUsers]);
 
+    // 🔥 FIX 2: sendRequest ko update kiya taaki permission error na aaye
     const sendRequest = async (targetUser) => {
         try {
-            await updateDoc(doc(db, "users", targetUser.uid), {
-                incomingRequests: arrayUnion(userData.uid)
+            // Kisi ki profile update karne ki jagah, friendRequests folder mein entry dalo
+            await addDoc(collection(db, "friendRequests"), {
+                senderId: userData.uid,
+                senderName: userData.name,
+                senderPhoto: userData.photo || "", // UI mein dikhane kaam aayega
+                receiverId: targetUser.uid,
+                status: "pending",
+                timestamp: serverTimestamp()
             });
+
             alert(`Friend request sent to ${targetUser.name}!`);
             setQuery(''); // Search bar clear
             setResults([]);
         } catch (err) {
             console.error("Failed to send request:", err);
-            alert("Error sending request. Check your internet.");
+            // Asli error UI par dikhega agar fail hua toh
+            alert(`Error: ${err.message}`);
         }
     };
 
@@ -61,7 +69,7 @@ export default function AddFriend() {
                     onChange={(e) => setQuery(e.target.value)}
                 />
 
-                {/* Spinner logic: Sirf searching ke waqt dikhega */}
+                {/* Spinner */}
                 {searching && (
                     <div className="absolute right-4 top-4">
                         <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -75,25 +83,27 @@ export default function AddFriend() {
                     results.map(u => (
                         <div
                             key={u.uid}
-                            onClick={() => sendRequest(u)}
-                            className="flex items-center justify-between p-3 bg-zinc-900 rounded-2xl border border-white/5 hover:border-blue-600/50 cursor-pointer transition-all group"
+                            className="flex items-center justify-between p-3 bg-zinc-900 rounded-2xl border border-white/5 hover:border-blue-600/50 transition-all group"
                         >
                             <div className="flex items-center gap-3">
                                 <img
-                                    src={u.photo}
-                                    className="w-8 h-8 rounded-full border border-white/10"
+                                    src={u.photo || 'https://via.placeholder.com/150'}
+                                    className="w-8 h-8 rounded-full object-cover border border-white/10"
                                     alt={u.name}
                                 />
                                 <div className="flex flex-col">
-                                    <span className="text-[10px] font-black uppercase italic tracking-tighter">
+                                    <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">
                                         {u.name}
                                     </span>
                                     <span className="text-[8px] text-zinc-500 font-bold">
-                                        @{u.username.toLowerCase()}
+                                        @{u.username?.toLowerCase()}
                                     </span>
                                 </div>
                             </div>
-                            <button className="text-[9px] font-black bg-blue-600 px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90">
+                            <button
+                                onClick={() => sendRequest(u)}
+                                className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
+                            >
                                 Add
                             </button>
                         </div>
