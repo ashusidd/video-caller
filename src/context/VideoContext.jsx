@@ -1,7 +1,6 @@
 import { createContext, useState, useEffect, useRef, useContext } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-// 🔥 FIX 1: arrayRemove ko import kiya gaya hai
 import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
@@ -473,27 +472,34 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 9. FRIEND REQUEST LOGIC (ACCEPT & REJECT)
+    // 9. FRIEND REQUEST LOGIC (🔥 FIX: ORIGINAL WORKING FLOW)
     // ==============================================================
     const acceptFriendRequest = async (requestId, senderId) => {
         try {
-            if (!user?.uid) return;
+            // Safety check: Agar IDs missing hain toh yahi rok do
+            if (!user?.uid || !senderId) {
+                console.error("Error: senderId ya user.uid missing hai. Button check karo!");
+                return;
+            }
 
+            // 1. Apne (Current User) account mein saamne wale ko add karo
             await updateDoc(doc(db, "users", user.uid), {
                 friends: arrayUnion(senderId)
             });
 
+            // 2. Request ko Request List se uda do
             await deleteDoc(doc(db, "friendRequests", requestId));
 
-            try {
-                await updateDoc(doc(db, "users", senderId), {
-                    friends: arrayUnion(user.uid)
-                });
-            } catch (err) {
-                console.log("Receiver update blocked, but UI cleared.");
-            }
+            // 3. Saamne wale (Sender) ke account mein khud ko add karo
+            await updateDoc(doc(db, "users", senderId), {
+                friends: arrayUnion(user.uid)
+            });
+
+            console.log("Success: Dono ek dusre ki list mein add ho gaye! 🔥");
+
         } catch (error) {
-            console.error("Accept error:", error);
+            // Agar koi actual error aayegi toh ab clearly yahan dikhegi
+            console.error("Accept karne mein asli error ye aayi hai:", error);
         }
     };
 
@@ -508,7 +514,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 10. DELETE FRIEND FUNCTION (🔥 TWO-WAY UNFRIEND)
+    // 10. DELETE FRIEND FUNCTION (TWO-WAY UNFRIEND)
     // ==============================================================
     const deleteFriend = async (friendId) => {
         try {
@@ -562,7 +568,7 @@ export const VideoProvider = ({ children }) => {
             setupProfile, searchUsers, saveFCMToken,
             acceptFriendRequest,
             rejectFriendRequest,
-            deleteFriend // 🔥 FIX 2: Isko Provider se export kar diya
+            deleteFriend
         }}>
             {children}
         </VideoContext.Provider>
