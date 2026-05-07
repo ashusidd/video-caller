@@ -53,10 +53,8 @@ export default function CallInterface() {
                 <div className="relative z-10">
                     <img
                         src={callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
-
                         className="w-32 h-32 rounded-full border-4 border-blue-500 shadow-2xl mb-6 object-cover"
                         alt="Caller"
-
                         onError={(e) => {
                             e.target.src = `https://ui-avatars.com/api/?name=${callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                         }}
@@ -68,11 +66,9 @@ export default function CallInterface() {
                 <h2 className="text-4xl font-black text-white italic mb-2 tracking-tighter z-10">{callerInfo?.name || 'Someone'}</h2>
                 <p className="text-blue-500 font-mono tracking-[0.3em] uppercase text-[10px] mb-16 animate-pulse z-10">Incoming {isAudioCall ? 'Audio' : 'Video'} Call...</p>
                 <div className="flex gap-14 z-10">
-                    {/* Call Reject (Rotated Phone) */}
                     <button onClick={endCall} className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center text-4xl active:scale-90 transition-transform shadow-lg shadow-red-900/20">
                         <span className="inline-block rotate-[135deg]">📞</span>
                     </button>
-                    {/* Call Accept */}
                     <button onClick={acceptCall} className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-4xl animate-bounce active:scale-90 transition-transform shadow-lg shadow-green-900/20">
                         {isAudioCall ? '📞' : '📹'}
                     </button>
@@ -81,21 +77,25 @@ export default function CallInterface() {
         );
     }
 
-    // --- 2. MAIN CALL SCREEN ---
+    // --- 2. MAIN CALL SCREEN (INSTAGRAM STYLE - 50/50 SPLIT) ---
     return (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
-            {/* Remote Video Stream */}
-            <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/5 flex items-center justify-center">
-                <video ref={remoteVideo} autoPlay playsInline className="w-full h-full object-cover" />
+            {/* 🟢 REMOTE VIDEO (Saamne wala) - Flex-1 makes it 50% */}
+            <div className="relative flex-1 bg-zinc-900 border-b md:border-b-0 md:border-r border-white/10 flex items-center justify-center">
+                <video
+                    ref={remoteVideo}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                />
+
                 {!isVideoCall && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
                             src={selectedFriend?.photo || selectedFriend?.photoURL || callerInfo?.photo || callerInfo?.photoURL || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
-
                             className="w-40 h-40 rounded-full border-4 border-zinc-800 object-cover shadow-2xl"
                             alt="Caller"
-
                             onError={(e) => {
                                 e.target.src = `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                             }}
@@ -104,20 +104,16 @@ export default function CallInterface() {
                     </div>
                 )}
 
-                {/* User Info Overlay */}
-                {callStatus === 'connected' && (
-                    <div className="absolute top-6 left-6 z-20 flex flex-col gap-2">
-                        <span className="bg-black/60 backdrop-blur-md text-white text-[10px] font-black italic px-3 py-1 rounded-full border border-white/10 uppercase tracking-widest w-fit">
-                            {selectedFriend?.name || callerInfo?.name}
-                        </span>
-                        <div className="flex items-center gap-2">
-                            <span className="bg-blue-600 text-white text-[11px] font-mono font-bold px-3 py-0.5 rounded shadow-lg">{formatTime(callTimer)}</span>
-                            <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-tighter bg-black/40 px-2 py-0.5 rounded italic">Signal: {networkSpeed}</span>
-                        </div>
-                    </div>
-                )}
+                {/* Name Tag for Remote */}
+                <div className="absolute top-6 left-6 z-20">
+                    <span className="bg-black/60 backdrop-blur-md text-white text-[10px] font-black italic px-3 py-1 rounded-full border border-white/10 uppercase tracking-widest">
+                        {selectedFriend?.name || callerInfo?.name}
+                    </span>
+                </div>
             </div>
-            <div className={`relative bg-zinc-950 items-center justify-center border-t md:border-t-0 md:border-l border-white/5 ${isVideoCall ? 'flex flex-1' : 'hidden'}`}>
+
+            {/* 🔵 LOCAL VIDEO (Meri Khud ki) - Flex-1 makes it 50% */}
+            <div className={`relative flex-1 bg-zinc-950 flex items-center justify-center ${!isVideoCall && 'hidden'}`}>
                 <video
                     ref={myVideo}
                     autoPlay
@@ -127,41 +123,39 @@ export default function CallInterface() {
                 />
 
                 {isCameraOff && (
-                    <div className="absolute inset-0 bg-[#0b141a] flex items-center justify-center">
+                    <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
                             src={userData?.photo || userData?.photoURL || `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
-
                             className="w-32 h-32 rounded-full border-4 border-zinc-800 object-cover opacity-30 grayscale"
-
                             alt="My Profile"
-
                             onError={(e) => {
-                                // Link kharab hone par 1 letter avatar
                                 e.target.src = `https://ui-avatars.com/api/?name=${userData?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
                             }}
                         />
+                        <span className="text-zinc-600 font-mono text-[10px] tracking-widest uppercase italic">Your Camera is Off</span>
                     </div>
                 )}
+
+                {/* Timer and Signal Info */}
+                <div className="absolute top-6 right-6 z-20 flex flex-col items-end gap-2">
+                    <span className="bg-blue-600 text-white text-[11px] font-mono font-bold px-3 py-0.5 rounded shadow-lg">{formatTime(callTimer)}</span>
+                    <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-tighter bg-black/40 px-2 py-0.5 rounded italic">Signal: {networkSpeed}</span>
+                </div>
             </div>
 
             {/* --- CALL CONTROLS --- */}
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-6 bg-black/40 backdrop-blur-xl px-6 py-3 rounded-full border border-white/10 shadow-2xl">
-
-                {/* 🎙️ Mic Button */}
                 <button
                     onClick={toggleMic}
                     className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all ${isMuted ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}
-                    title={isMuted ? "Unmute Mic" : "Mute Mic"}
                 >
                     {isMuted ? '🔇' : '🎙️'}
                 </button>
 
-                {/* 📹 Camera Button (Only for Video Call) */}
                 {isVideoCall && (
                     <button
                         onClick={toggleCamera}
                         className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all ${isCameraOff ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}
-                        title={isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
                     >
                         <span className="relative flex items-center justify-center">
                             📹
@@ -169,9 +163,10 @@ export default function CallInterface() {
                         </span>
                     </button>
                 )}
+
                 <button
                     onClick={endCall}
-                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700 ml-2"
+                    className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl shadow-2xl active:scale-90 transition-transform hover:bg-red-700"
                 >
                     <span className="inline-block rotate-[135deg] drop-shadow-md">📞</span>
                 </button>
