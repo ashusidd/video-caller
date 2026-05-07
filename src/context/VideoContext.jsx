@@ -4,6 +4,7 @@ import { db, rtdb } from '../firebase';
 import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
+import { getMessaging, getToken } from 'firebase/messaging';
 
 export const VideoContext = createContext();
 
@@ -59,13 +60,18 @@ export const VideoProvider = ({ children }) => {
     // 1. DATA FETCHING & PERMISSION
     // ==============================================================
     useEffect(() => {
-        if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-            Notification.requestPermission();
-        }
-
         if (!user) {
             setIsLoading(false);
             return;
+        }
+
+        // 🔔 Permission aur Token Logic
+        if ('Notification' in window) {
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') {
+                    saveFCMToken(); // 🔥 Token mangne aur save karne wala function
+                }
+            });
         }
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
@@ -76,7 +82,10 @@ export const VideoProvider = ({ children }) => {
             setIsLoading(false);
         });
 
-        const qReq = query(collection(db, "friendRequests"), where("receiverId", "==", user.uid), where("status", "==", "pending"));
+        const qReq = query(collection(db, "friendRequests"),
+            where("receiverId", "==", user.uid),
+            where("status", "==", "pending")
+        );
         const unsubRequests = onSnapshot(qReq, (snap) => setRequestCount(snap.size));
 
         return () => { unsubUser(); unsubRequests(); };
@@ -404,31 +413,32 @@ export const VideoProvider = ({ children }) => {
         };
     }, [user]);
     // ==============================================================
-    // 7. PROFILE SETUP FUNCTION (Jo miss ho gaya tha)
+    // 7. PROFILE SETUP FUNCTION
     // ==============================================================
 
     const setupProfile = async (name, username, phone) => {
-        if (!user) {
-            throw new Error("User not logged!");
-        }
+        if (!user) throw new Error("User not logged!");
 
         try {
+            // 🟢 Placeholder image agar user ki photo nahi hai
+            const defaultAvatar = `https://ui-avatars.com/api/?name=${name}&background=random&color=fff`;
+
             await setDoc(doc(db, "users", user.uid), {
                 name: name,
-                username: username,
+                username: username.toLowerCase(), // Hamesha lowercase rakho search ke liye
                 phone: phone,
-                photo: user.photoURL || "",
+                // Agar user.photoURL hai toh wahi, warna default avatar
+                photo: user.photoURL || defaultAvatar,
                 uid: user.uid,
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
-            console.log("Profile setup completed!");
+            console.log("Profile setup completed with photo!");
         } catch (error) {
             console.error("Profile save error:", error);
             throw error;
         }
     };
-
     // ==============================================================
     // 8. SEARCH USERS FUNCTION
     // ==============================================================
@@ -462,13 +472,34 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // ==============================================================
+    // 9. SAVE FCM TOKEN (For Push Notifications)
+    // ==============================================================
+    const saveFCMToken = async () => {
+        try {
+            const messaging = getMessaging();
+            const currentToken = await getToken(messaging, {
+                vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg'
+            });
+
+            if (currentToken) {
+                await setDoc(doc(db, "users", user.uid), {
+                    fcmToken: currentToken
+                }, { merge: true });
+                console.log("FCM Token saved to DB!");
+            }
+        } catch (err) {
+            console.error('FCM Token error:', err);
+        }
+    };
+
     return (
         <VideoContext.Provider value={{
             userData, isLoading, friends, selectedFriend, setSelectedFriend,
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
-            setupProfile, searchUsers
+            setupProfile, searchUsers, saveFCMToken
         }}>
             {children}
         </VideoContext.Provider>
