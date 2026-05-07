@@ -526,7 +526,6 @@ export const VideoProvider = ({ children }) => {
 
             // 🔥 Naye functions ko export kar diya hai
             acceptFriendRequest,
-            rejectFriendRequest
         }}>
             {children}
         </VideoContext.Provider>
