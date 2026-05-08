@@ -196,7 +196,6 @@ export const VideoProvider = ({ children }) => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
             localStreamRef.current = stream;
 
-            // DOM rendering timeout delay
             setTimeout(() => {
                 if (myVideo.current) {
                     myVideo.current.srcObject = stream;
@@ -237,6 +236,8 @@ export const VideoProvider = ({ children }) => {
             });
             call.on('close', () => endCall());
         } catch (err) {
+            // 🔥 Ye naya log batayega ki error hardware ki wajah se aayi thi ya nahi
+            console.error("❌ START CALL ERROR (Hardware lock ho sakta hai):", err);
             isConnectingRef.current = false; setCallStatus('idle');
         }
     };
@@ -289,13 +290,15 @@ export const VideoProvider = ({ children }) => {
                 call.on('close', () => endCall());
             }
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
-        } catch (err) { isConnectingRef.current = false; endCall(); }
+        } catch (err) {
+            console.error("❌ ACCEPT CALL ERROR (Hardware lock ho sakta hai):", err);
+            isConnectingRef.current = false; endCall();
+        }
     };
 
     const endCall = async () => {
         isConnectingRef.current = true;
 
-        // 🔥 FIX: Synchronous reset taaki code confuse na ho
         const prevStatus = callStatusRef.current;
         callStatusRef.current = 'idle';
 
@@ -311,7 +314,6 @@ export const VideoProvider = ({ children }) => {
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
-            // 🔥 FIX: Firebase Cleanup ekdum solid kar diya
             const cleanupPromises = [];
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
@@ -327,13 +329,30 @@ export const VideoProvider = ({ children }) => {
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach(t => t.stop());
-            localStreamRef.current = null;
+        // 🔥 FIX: EXTREME HARDWARE CLEANUP (Tumhara Doubt Yahan Fix Hua Hai)
+        const killTracks = (stream) => {
+            if (stream && stream.getTracks) {
+                stream.getTracks().forEach(track => {
+                    track.stop(); // Hardware release karo
+                });
+            }
+        };
+
+        // 1. Memory wala stream kill karo
+        killTracks(localStreamRef.current);
+        localStreamRef.current = null;
+
+        // 2. Apni video ke element se track dhundh ke kill karo
+        if (myVideo.current && myVideo.current.srcObject) {
+            killTracks(myVideo.current.srcObject);
+            myVideo.current.srcObject = null;
         }
 
-        if (myVideo.current) myVideo.current.srcObject = null;
-        if (remoteVideo.current) remoteVideo.current.srcObject = null;
+        // 3. Dusre ki video stream kill karo
+        if (remoteVideo.current && remoteVideo.current.srcObject) {
+            killTracks(remoteVideo.current.srcObject);
+            remoteVideo.current.srcObject = null;
+        }
 
         setCallStatus('idle');
         setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
@@ -358,8 +377,6 @@ export const VideoProvider = ({ children }) => {
 
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
-        // 🔥 FIX: RACE CONDITION SOLVED
-        // Ab Firebase check nahi karega, seedha PeerJS ka stream accept karega!
         peer.on('call', async (call) => {
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
                 call.answer(); setTimeout(() => call.close(), 500); return;
@@ -383,7 +400,6 @@ export const VideoProvider = ({ children }) => {
                 return;
             }
 
-            // Dekho yahan se purana query() wala hissa gayab hai
             setCallerInfo(call.metadata);
             setIncomingCall(call);
             setCallStatus('receiving');
