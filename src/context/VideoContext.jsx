@@ -25,6 +25,7 @@ export const VideoProvider = ({ children }) => {
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
+    const localStreamRef = useRef(null); // 🔥 NEW: Stream ko store karne ke liye naya ref
 
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
@@ -42,9 +43,8 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
 
     const saveCallLog = async (remoteId, remoteName, type, status) => {
-        if (!user) return; //
+        if (!user) return;
         try {
-            // Current time mein 24 hours add karo
             const expiryDate = new Date();
             expiryDate.setHours(expiryDate.getHours() + 24);
 
@@ -53,11 +53,11 @@ export const VideoProvider = ({ children }) => {
                 callerName: userData?.name || "User",
                 receiverId: remoteId,
                 receiverName: remoteName,
-                type: type, // 'video' ya 'audio'
-                status: status, // 'completed' ya 'missed'
+                type: type,
+                status: status,
                 timestamp: serverTimestamp(),
-                expiresAt: expiryDate, // 🔥 Ye TTL field hai
-                users: [user.uid, remoteId] // Query asaan karne ke liye
+                expiresAt: expiryDate,
+                users: [user.uid, remoteId]
             });
         } catch (e) {
             console.error("Log save error:", e);
@@ -65,7 +65,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 迫 URL PARAMETER CATCHER (For Notification Auto-Accept)
+    // URL PARAMETER CATCHER (For Notification Auto-Accept)
     // ==============================================================
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -182,7 +182,7 @@ export const VideoProvider = ({ children }) => {
     }, [callStatus]);
 
     // ==============================================================
-    // 4. TIMER & MUTE SYNC (櫨 UPDATED toggleCamera)
+    // 4. TIMER & MUTE SYNC 
     // ==============================================================
     useEffect(() => {
         if (callStatus === 'connected') {
@@ -194,11 +194,15 @@ export const VideoProvider = ({ children }) => {
         return () => clearInterval(timerRef.current);
     }, [callStatus]);
 
+    // 🔥 FIX: Naya toggleMic function jo directly localStreamRef use karta hai
     const toggleMic = () => {
-        if (myVideo.current?.srcObject) {
-            const audioTrack = myVideo.current.srcObject.getAudioTracks()[0];
+        if (localStreamRef.current) {
+            const audioTrack = localStreamRef.current.getAudioTracks()[0];
             if (audioTrack) {
-                const newState = !audioTrack.enabled; audioTrack.enabled = newState; setIsMuted(!newState);
+                const newState = !audioTrack.enabled;
+                audioTrack.enabled = newState;
+                setIsMuted(!newState);
+
                 if (currentCall?.peerConnection) {
                     const audioSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'audio');
                     if (audioSender) audioSender.track.enabled = newState;
@@ -207,13 +211,12 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
-    const toggleCamera = async () => { // 🔥 Made async
+    const toggleCamera = async () => {
         if (myVideo.current?.srcObject) {
             const videoTrack = myVideo.current.srcObject.getVideoTracks()[0];
             if (videoTrack) {
                 const newState = !videoTrack.enabled; videoTrack.enabled = newState; setIsCameraOff(!newState);
 
-                // 🔥 SYNC: Update RTDB Status
                 if (callStatus === 'connected' && user?.uid) {
                     await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: newState });
                 }
@@ -227,7 +230,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 5. CALL LOGIC (櫨 UPDATED startCall, acceptCall, endCall)
+    // 5. CALL LOGIC
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -236,12 +239,13 @@ export const VideoProvider = ({ children }) => {
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            localStreamRef.current = stream; // 🔥 FIX: Stream ko global ref me save kar rahe hain
+
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
                 myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
             }
 
-            // 🔥 SYNC: Initialize RTDB status
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
             await addDoc(collection(db, "signals"), {
@@ -261,7 +265,6 @@ export const VideoProvider = ({ children }) => {
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
-            // 30 seconds ka timer: Agar status tab bhi 'ringing' hai toh endCall() chala do
             setTimeout(() => {
                 if (callStatusRef.current === 'ringing') {
                     endCall();
@@ -284,9 +287,10 @@ export const VideoProvider = ({ children }) => {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            localStreamRef.current = stream; // 🔥 FIX: Accept karne wale ki bhi stream ref me save ki
+
             setCallStatus('connected');
 
-            // 🔥 SYNC: Initialize RTDB status for acceptor
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
             setTimeout(() => {
@@ -325,7 +329,6 @@ export const VideoProvider = ({ children }) => {
     };
 
     const endCall = async () => {
-        // 1. Log save karne ka logic (status clear hone se pehle)
         if (callStatusRef.current !== 'idle') {
             const isMissed = callStatusRef.current === 'ringing' || callStatusRef.current === 'receiving';
             const remoteId = selectedFriend?.uid || callerInfo?.uid;
@@ -337,7 +340,6 @@ export const VideoProvider = ({ children }) => {
             }
         }
         try {
-            // 🔥 SYNC: Cleanup RTDB status
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
@@ -360,6 +362,8 @@ export const VideoProvider = ({ children }) => {
             remoteVideo.current.srcObject.getTracks().forEach(t => t.stop());
             remoteVideo.current.srcObject = null;
         }
+
+        localStreamRef.current = null; // 🔥 FIX: Stream call end hone ke baad clear kar di
 
         setCallStatus('idle'); setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
         setIsMuted(false); setIsCameraOff(false);
@@ -445,7 +449,7 @@ export const VideoProvider = ({ children }) => {
     }, [user]);
 
     // ==============================================================
-    // 7. PROFILE SETUP FUNCTION (Gmail Pic Priority Fix)
+    // 7. PROFILE SETUP FUNCTION 
     // ==============================================================
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
@@ -491,7 +495,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // ==============================================================
-    // 10. DELETE FRIEND FUNCTION (TWO-WAY UNFRIEND)
+    // 10. DELETE FRIEND FUNCTION 
     // ==============================================================
     const deleteFriend = async (friendId) => {
         try {
