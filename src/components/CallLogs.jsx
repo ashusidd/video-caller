@@ -89,7 +89,7 @@ export default function CallLogs({ filterId }) {
                     <div key={log.id} className="bg-zinc-900/30 p-3 rounded-xl border border-white/5 flex justify-between items-center group hover:bg-zinc-900/50 transition-all">
                         <div className="flex items-center gap-3">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${log.status === 'missed' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
-                                {log.status === 'missed' ? '📞' : '📹'}
+                                {log.status === 'missed' ? '🔴' : '🟢'}
                             </div>
                             <div>
                                 <p className="text-xs font-bold text-zinc-200 capitalize">

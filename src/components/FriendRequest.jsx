@@ -77,11 +77,10 @@ export default function FriendRequest() {
                                 Accept
                             </button>
                             <button
-                                // Reject function sirf Request ID mangta hai delete karne ke liye
                                 onClick={() => rejectFriendRequest(req.id)}
                                 className="bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase transition-all active:scale-90"
                             >
-                                ✕
+                                ❌
                             </button>
                         </div>
                     </div>

@@ -93,7 +93,7 @@ export default function CallInterface() {
 
     // --- 2. MAIN CALL SCREEN ---
     return (
-        <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
+        <div className="fixed inset-0 bg-black z-[999] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
             {/* 🔥 FIXED TIMER */}
             <div className="absolute top-6 right-6 z-[120] flex flex-col items-end gap-2">

@@ -231,6 +231,11 @@ export const VideoProvider = ({ children }) => {
                 peerInstance.current.reconnect();
             }
 
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
+
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
@@ -289,6 +294,11 @@ export const VideoProvider = ({ children }) => {
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
             localStreamRef.current = stream;
+
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
 
             setCallStatus('connected');
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
