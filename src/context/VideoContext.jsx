@@ -27,7 +27,7 @@ export const VideoProvider = ({ children }) => {
     const peerInstance = useRef(null);
     const localStreamRef = useRef(null);
 
-    // 🔥 FIX 1: Naya Ref jo sirf Current Call ka ID yaad rakhega (Rapid Recall Bug Fix)
+    // Naya Ref jo Current Call ka ID yaad rakhega
     const activeSignalId = useRef(null);
 
     const [isMuted, setIsMuted] = useState(false);
@@ -62,9 +62,7 @@ export const VideoProvider = ({ children }) => {
                 expiresAt: expiryDate,
                 users: [user.uid, remoteId]
             });
-        } catch (e) {
-            console.error("Log save error:", e);
-        }
+        } catch (e) { console.error("Log save error:", e); }
     };
 
     useEffect(() => {
@@ -112,9 +110,11 @@ export const VideoProvider = ({ children }) => {
             const currentStatus = callStatusRef.current;
             if (!snapshot.empty) {
                 const firstDoc = snapshot.docs[0];
+
+                // 🔥 THE FIX: PeerJS kitna bhi fast ho, Signal ID hamesha save hogi!
+                activeSignalId.current = firstDoc.id;
+
                 if (currentStatus === 'idle') {
-                    // 🔥 FIX 2: Receiver ko pata chal gaya call ka exact ID kya hai
-                    activeSignalId.current = firstDoc.id;
                     const signalData = firstDoc.data();
                     setCallerInfo({ uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type });
                     setCallStatus('receiving');
@@ -210,7 +210,6 @@ export const VideoProvider = ({ children }) => {
 
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
-            // 🔥 FIX 3: Caller ne DB me call ka ID note kar liya
             const signalRef = await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
@@ -265,9 +264,6 @@ export const VideoProvider = ({ children }) => {
                 }
             }, 300);
 
-            // 🔥 FIX 4: "Accept Bug" Khatam! Yahan se wo galti wala code hata diya jo signal delete karke caller ki call drop kara raha tha. 
-            // Ab signal endCall par hi delete hoga.
-
             if (incomingCall) {
                 incomingCall.answer(stream);
                 incomingCall.on('stream', (remStream) => {
@@ -305,9 +301,8 @@ export const VideoProvider = ({ children }) => {
         const prevStatus = callStatusRef.current;
         callStatusRef.current = 'idle';
 
-        // 🔥 FIX 5: Nayi call lagne se pehle sirf isi call ka kachra ID nikal liya 
         const signalToDelete = activeSignalId.current;
-        activeSignalId.current = null; // Taki nayi call is variable se safe rahe
+        activeSignalId.current = null;
 
         if (prevStatus !== 'idle') {
             const isMissed = prevStatus === 'ringing' || prevStatus === 'receiving';
@@ -321,16 +316,21 @@ export const VideoProvider = ({ children }) => {
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
-            // 🔥 FIX 6: Targeted Delete! Ab loops ki zaroorat nahi, sirf current call ka signal udayega
+            // 🔥 FIX: Exact ID se hi delete karega, kisi nayi call ko nahi chedega
             if (signalToDelete) {
-                await deleteDoc(doc(db, "signals", signalToDelete));
+                await deleteDoc(doc(db, "signals", signalToDelete)).catch(e => console.log("Delete error:", e));
             }
+
+            // Backup Safety (Agar koi ghost signal fas gaya ho)
+            const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
+            const snapIncoming = await getDocs(qIncoming);
+            snapIncoming.forEach(async (d) => { if (d.id !== activeSignalId.current) await deleteDoc(doc(db, "signals", d.id)); });
+
         } catch (error) { console.error("Signal cleanup failed:", error); }
 
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
-        // 🔥 FIX 7: Hardware Lock Release (Camera aur Mic ki full safety)
         const killTracks = (stream) => {
             if (stream && stream.getTracks) {
                 stream.getTracks().forEach(track => track.stop());
