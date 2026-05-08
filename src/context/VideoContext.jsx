@@ -25,7 +25,7 @@ export const VideoProvider = ({ children }) => {
     const myVideo = useRef();
     const remoteVideo = useRef();
     const peerInstance = useRef(null);
-    const localStreamRef = useRef(null); // 🔥 NEW: Stream ko store karne ke liye naya ref
+    const localStreamRef = useRef(null);
 
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
@@ -194,7 +194,6 @@ export const VideoProvider = ({ children }) => {
         return () => clearInterval(timerRef.current);
     }, [callStatus]);
 
-    // 🔥 FIX: Naya toggleMic function jo directly localStreamRef use karta hai
     const toggleMic = () => {
         if (localStreamRef.current) {
             const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -234,12 +233,21 @@ export const VideoProvider = ({ children }) => {
     // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
+            isConnectingRef.current = true; // 🔥 FIX: Guard laga diya taaki turant cut na ho
+
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
+
+            // 🔥 FIX: Agar server se disconnect ho gaya tha, toh reconnect karo
+            if (peerInstance.current && peerInstance.current.disconnected && !peerInstance.current.destroyed) {
+                console.log("Reconnecting PeerJS...");
+                peerInstance.current.reconnect();
+            }
+
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            localStreamRef.current = stream; // 🔥 FIX: Stream ko global ref me save kar rahe hain
+            localStreamRef.current = stream;
 
             if (myVideo.current) {
                 myVideo.current.srcObject = stream;
@@ -265,6 +273,9 @@ export const VideoProvider = ({ children }) => {
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
+            // 🔥 FIX: 3 seconds baad guard open karo
+            setTimeout(() => { isConnectingRef.current = false; }, 3000);
+
             setTimeout(() => {
                 if (callStatusRef.current === 'ringing') {
                     endCall();
@@ -279,7 +290,10 @@ export const VideoProvider = ({ children }) => {
                 }
             });
             call.on('close', () => endCall());
-        } catch (err) { setCallStatus('idle'); }
+        } catch (err) {
+            isConnectingRef.current = false;
+            setCallStatus('idle');
+        }
     };
 
     const acceptCall = async () => {
@@ -287,7 +301,7 @@ export const VideoProvider = ({ children }) => {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            localStreamRef.current = stream; // 🔥 FIX: Accept karne wale ki bhi stream ref me save ki
+            localStreamRef.current = stream;
 
             setCallStatus('connected');
 
@@ -329,6 +343,8 @@ export const VideoProvider = ({ children }) => {
     };
 
     const endCall = async () => {
+        isConnectingRef.current = true; // 🔥 FIX: Clean up ke dauran call katne se roko
+
         if (callStatusRef.current !== 'idle') {
             const isMissed = callStatusRef.current === 'ringing' || callStatusRef.current === 'receiving';
             const remoteId = selectedFriend?.uid || callerInfo?.uid;
@@ -363,10 +379,19 @@ export const VideoProvider = ({ children }) => {
             remoteVideo.current.srcObject = null;
         }
 
-        localStreamRef.current = null; // 🔥 FIX: Stream call end hone ke baad clear kar di
+        localStreamRef.current = null;
 
-        setCallStatus('idle'); setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
-        setIsMuted(false); setIsCameraOff(false);
+        setCallStatus('idle');
+        setCurrentCall(null);
+        setIncomingCall(null);
+        setCallerInfo(null);
+        setIsMuted(false);
+        setIsCameraOff(false);
+
+        // 🔥 FIX: Pura process hone ke 1 second baad hi guard hatao taaki immediate dubara call lag sake
+        setTimeout(() => {
+            isConnectingRef.current = false;
+        }, 1000);
     };
 
     // ==============================================================
@@ -388,6 +413,14 @@ export const VideoProvider = ({ children }) => {
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
         });
         peerInstance.current = peer;
+
+        // 🔥 FIX: Agar server se disconnect hota hai, toh automatically reconnect karega
+        peer.on('disconnected', () => {
+            console.log('Peer disconnected, trying to reconnect...');
+            if (!peer.destroyed) {
+                peer.reconnect();
+            }
+        });
 
         peer.on('call', async (call) => {
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
