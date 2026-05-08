@@ -64,9 +64,6 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
-    // ==============================================================
-    // URL PARAMETER CATCHER (For Notification Auto-Accept)
-    // ==============================================================
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
         const autoAccept = urlParams.get('autoAccept');
@@ -79,49 +76,30 @@ export const VideoProvider = ({ children }) => {
         }
     }, [callStatus]);
 
-    // ==============================================================
-    // 1. DATA FETCHING & PERMISSION
-    // ==============================================================
     useEffect(() => {
         if (authloading) return;
-
         if (!user) {
-            setIsLoading(false);
-            setUserData(null);
-            setFriends([]);
-            setSelectedFriend(null);
+            setIsLoading(false); setUserData(null); setFriends([]); setSelectedFriend(null);
             return;
         }
 
         if ('Notification' in window) {
             Notification.requestPermission().then((permission) => {
-                if (permission === 'granted') {
-                    saveFCMToken();
-                }
+                if (permission === 'granted') saveFCMToken();
             });
         }
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
             setUserData(snapshot.exists() ? snapshot.data() : null);
-            setTimeout(() => {
-                setIsLoading(false);
-            }, 300);
-        }, (error) => {
-            setIsLoading(false);
-        });
+            setTimeout(() => setIsLoading(false), 300);
+        }, () => setIsLoading(false));
 
-        const qReq = query(collection(db, "friendRequests"),
-            where("receiverId", "==", user.uid),
-            where("status", "==", "pending")
-        );
+        const qReq = query(collection(db, "friendRequests"), where("receiverId", "==", user.uid), where("status", "==", "pending"));
         const unsubRequests = onSnapshot(qReq, (snap) => setRequestCount(snap.size));
 
         return () => { unsubUser(); unsubRequests(); };
     }, [user, authloading]);
 
-    // ==============================================================
-    // 2. SIGNALING BRIDGE
-    // ==============================================================
     useEffect(() => {
         if (!user || isLoading) return;
 
@@ -131,9 +109,7 @@ export const VideoProvider = ({ children }) => {
             if (!snapshot.empty) {
                 if (currentStatus === 'idle') {
                     const signalData = snapshot.docs[0].data();
-                    setCallerInfo({
-                        uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type
-                    });
+                    setCallerInfo({ uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type });
                     setCallStatus('receiving');
                 }
             } else {
@@ -146,47 +122,28 @@ export const VideoProvider = ({ children }) => {
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
             if (snapshot.empty && callStatusRef.current === 'ringing' && !isConnectingRef.current) {
-                setTimeout(() => {
-                    if (callStatusRef.current === 'ringing') {
-                        endCall();
-                    }
-                }, 3000);
+                setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 3000);
             }
         });
 
         return () => { unsubIncoming(); unsubOutgoing(); };
     }, [user, isLoading]);
 
-    // ==============================================================
-    // 3. SOUND MANAGEMENT
-    // ==============================================================
     useEffect(() => {
-        const playSound = (audio) => {
-            audio.currentTime = 0;
-            audio.play().catch(e => console.warn("Autoplay blocked:", e));
-        };
-        const stopAllSounds = () => {
-            ringtoneAudio.current.pause(); ringtoneAudio.current.currentTime = 0;
-            dialingAudio.current.pause(); dialingAudio.current.currentTime = 0;
-        };
+        const playSound = (audio) => { audio.currentTime = 0; audio.play().catch(e => console.warn("Autoplay blocked:", e)); };
+        const stopAllSounds = () => { ringtoneAudio.current.pause(); ringtoneAudio.current.currentTime = 0; dialingAudio.current.pause(); dialingAudio.current.currentTime = 0; };
 
-        if (callStatus === 'receiving') {
-            stopAllSounds(); ringtoneAudio.current.loop = true; playSound(ringtoneAudio.current);
-        } else if (callStatus === 'ringing') {
-            stopAllSounds(); dialingAudio.current.loop = true; playSound(dialingAudio.current);
-        } else if (callStatus === 'idle') {
-            stopAllSounds(); if (prevCallStatus.current !== 'idle') playSound(endCallAudio.current);
-        }
+        if (callStatus === 'receiving') { stopAllSounds(); ringtoneAudio.current.loop = true; playSound(ringtoneAudio.current); }
+        else if (callStatus === 'ringing') { stopAllSounds(); dialingAudio.current.loop = true; playSound(dialingAudio.current); }
+        else if (callStatus === 'idle') { stopAllSounds(); if (prevCallStatus.current !== 'idle') playSound(endCallAudio.current); }
+
         prevCallStatus.current = callStatus;
         return () => stopAllSounds();
     }, [callStatus]);
 
-    // ==============================================================
-    // 4. TIMER & MUTE SYNC 
-    // ==============================================================
     useEffect(() => {
         if (callStatus === 'connected') {
-            timerRef.current = setInterval(() => { setCallTimer((prev) => prev + 1); }, 1000);
+            timerRef.current = setInterval(() => setCallTimer((prev) => prev + 1), 1000);
         } else {
             clearInterval(timerRef.current);
             if (callStatus === 'idle') setCallTimer(0);
@@ -198,10 +155,7 @@ export const VideoProvider = ({ children }) => {
         if (localStreamRef.current) {
             const audioTrack = localStreamRef.current.getAudioTracks()[0];
             if (audioTrack) {
-                const newState = !audioTrack.enabled;
-                audioTrack.enabled = newState;
-                setIsMuted(!newState);
-
+                const newState = !audioTrack.enabled; audioTrack.enabled = newState; setIsMuted(!newState);
                 if (currentCall?.peerConnection) {
                     const audioSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'audio');
                     if (audioSender) audioSender.track.enabled = newState;
@@ -215,11 +169,7 @@ export const VideoProvider = ({ children }) => {
             const videoTrack = myVideo.current.srcObject.getVideoTracks()[0];
             if (videoTrack) {
                 const newState = !videoTrack.enabled; videoTrack.enabled = newState; setIsCameraOff(!newState);
-
-                if (callStatus === 'connected' && user?.uid) {
-                    await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: newState });
-                }
-
+                if (callStatus === 'connected' && user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: newState });
                 if (currentCall?.peerConnection) {
                     const videoSender = currentCall.peerConnection.getSenders().find(s => s.track?.kind === 'video');
                     if (videoSender) videoSender.track.enabled = newState;
@@ -228,18 +178,12 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
-    // ==============================================================
-    // 5. CALL LOGIC
-    // ==============================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
-            isConnectingRef.current = true; // 🔥 FIX: Guard laga diya taaki turant cut na ho
-
+            isConnectingRef.current = true;
             const targetUid = typeof targetUser === 'string' ? targetUser : targetUser?.uid;
 
-            // 🔥 FIX: Agar server se disconnect ho gaya tha, toh reconnect karo
             if (peerInstance.current && peerInstance.current.disconnected && !peerInstance.current.destroyed) {
-                console.log("Reconnecting PeerJS...");
                 peerInstance.current.reconnect();
             }
 
@@ -255,32 +199,17 @@ export const VideoProvider = ({ children }) => {
             }
 
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
-
             await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
 
-            const receiverDoc = await getDoc(doc(db, "users", targetUid));
-            if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
-                fetch('/api/notify', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: isVideo ? 'video' : 'audio', fromId: user.uid })
-                }).catch(e => console.error(e));
-            }
-
             const call = peerInstance.current.call(targetUid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
-            // 🔥 FIX: 3 seconds baad guard open karo
             setTimeout(() => { isConnectingRef.current = false; }, 3000);
-
-            setTimeout(() => {
-                if (callStatusRef.current === 'ringing') {
-                    endCall();
-                }
-            }, 30000);
+            setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 30000);
 
             call.on('stream', (remStream) => {
                 setCallStatus('connected');
@@ -291,8 +220,7 @@ export const VideoProvider = ({ children }) => {
             });
             call.on('close', () => endCall());
         } catch (err) {
-            isConnectingRef.current = false;
-            setCallStatus('idle');
+            isConnectingRef.current = false; setCallStatus('idle');
         }
     };
 
@@ -304,7 +232,6 @@ export const VideoProvider = ({ children }) => {
             localStreamRef.current = stream;
 
             setCallStatus('connected');
-
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
             setTimeout(() => {
@@ -314,9 +241,12 @@ export const VideoProvider = ({ children }) => {
                 }
             }, 300);
 
+            // 🔥 FIX: Async deletion wait with Promise.all
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
-            snap.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+            const deletePromises = [];
+            snap.forEach((d) => deletePromises.push(deleteDoc(doc(db, "signals", d.id))));
+            await Promise.all(deletePromises);
 
             if (incomingCall) {
                 incomingCall.answer(stream);
@@ -327,76 +257,61 @@ export const VideoProvider = ({ children }) => {
                     }
                 });
                 incomingCall.on('close', () => endCall());
-            } else {
-                const call = peerInstance.current.call(callerInfo.uid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
-                setCurrentCall(call);
-                call.on('stream', (remStream) => {
-                    if (remoteVideo.current) {
-                        remoteVideo.current.srcObject = remStream;
-                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                    }
-                });
-                call.on('close', () => endCall());
             }
-            setTimeout(() => { isConnectingRef.current = false; }, 2000);
+            setTimeout(() => { isConnectingRef.current = false; }, 1000);
         } catch (err) { isConnectingRef.current = false; endCall(); }
     };
 
     const endCall = async () => {
-        isConnectingRef.current = true; // 🔥 FIX: Clean up ke dauran call katne se roko
+        isConnectingRef.current = true;
 
-        if (callStatusRef.current !== 'idle') {
-            const isMissed = callStatusRef.current === 'ringing' || callStatusRef.current === 'receiving';
+        // 🔥 FIX: Turant locally state ko 'idle' declare kar do (Race Condition se bachne ke liye)
+        const prevStatus = callStatusRef.current;
+        callStatusRef.current = 'idle';
+
+        if (prevStatus !== 'idle') {
+            const isMissed = prevStatus === 'ringing' || prevStatus === 'receiving';
             const remoteId = selectedFriend?.uid || callerInfo?.uid;
             const remoteName = selectedFriend?.name || callerInfo?.name;
             const callType = callerInfo?.callType || 'video';
-
-            if (remoteId) {
-                saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
-            }
+            if (remoteId) saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
         }
+
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
+            // 🔥 FIX: Cleanup 100% complete hone tak wait karega Promise.all ke zariye
+            const cleanupPromises = [];
+
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
-            snapIncoming.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+            snapIncoming.forEach((d) => cleanupPromises.push(deleteDoc(doc(db, "signals", d.id))));
 
             const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
             const snapOutgoing = await getDocs(qOutgoing);
-            snapOutgoing.forEach(async (d) => await deleteDoc(doc(db, "signals", d.id)));
+            snapOutgoing.forEach((d) => cleanupPromises.push(deleteDoc(doc(db, "signals", d.id))));
+
+            await Promise.all(cleanupPromises);
         } catch (error) { console.error("Signal cleanup failed:", error); }
 
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
-        if (myVideo.current?.srcObject) {
-            myVideo.current.srcObject.getTracks().forEach(t => t.stop());
-            myVideo.current.srcObject = null;
-        }
-        if (remoteVideo.current?.srcObject) {
-            remoteVideo.current.srcObject.getTracks().forEach(t => t.stop());
-            remoteVideo.current.srcObject = null;
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(t => t.stop());
+            localStreamRef.current = null;
         }
 
-        localStreamRef.current = null;
+        if (myVideo.current) myVideo.current.srcObject = null;
+        if (remoteVideo.current) remoteVideo.current.srcObject = null;
 
         setCallStatus('idle');
-        setCurrentCall(null);
-        setIncomingCall(null);
-        setCallerInfo(null);
-        setIsMuted(false);
-        setIsCameraOff(false);
+        setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
+        setIsMuted(false); setIsCameraOff(false);
 
-        // 🔥 FIX: Pura process hone ke 1 second baad hi guard hatao taaki immediate dubara call lag sake
-        setTimeout(() => {
-            isConnectingRef.current = false;
-        }, 1000);
+        setTimeout(() => { isConnectingRef.current = false; }, 500);
     };
 
-    // ==============================================================
-    // 6. PEER INIT, PRESENCE & FRIENDS LISTENER
-    // ==============================================================
     useEffect(() => {
         if (!user) return;
 
@@ -408,25 +323,14 @@ export const VideoProvider = ({ children }) => {
                 .then(() => set(userStatusRef, { state: 'online', last_changed: rtdbTimestamp() }));
         });
 
-        const peer = new Peer(user.uid, {
-            debug: 2,
-            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] }
-        });
+        const peer = new Peer(user.uid, { debug: 2, config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] } });
         peerInstance.current = peer;
 
-        // 🔥 FIX: Agar server se disconnect hota hai, toh automatically reconnect karega
-        peer.on('disconnected', () => {
-            console.log('Peer disconnected, trying to reconnect...');
-            if (!peer.destroyed) {
-                peer.reconnect();
-            }
-        });
+        peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
         peer.on('call', async (call) => {
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
-                call.answer();
-                setTimeout(() => call.close(), 500);
-                return;
+                call.answer(); setTimeout(() => call.close(), 500); return;
             }
 
             if (callStatusRef.current === 'ringing') {
@@ -445,108 +349,66 @@ export const VideoProvider = ({ children }) => {
                 return;
             }
 
-            const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-                setCallerInfo(call.metadata);
-                setIncomingCall(call);
-                setCallStatus('receiving');
-            } else {
-                call.close();
-            }
+            // 🔥 FIX: Firebase check hata diya! Kyunki PeerJS jyada fast hai, ab direct caller data uthayega.
+            setCallerInfo(call.metadata);
+            setIncomingCall(call);
+            setCallStatus('receiving');
         });
 
         const unsubFriends = onSnapshot(doc(db, "users", user.uid), async (userSnap) => {
             if (userSnap.exists()) {
                 const myFriendIds = userSnap.data().friends || [];
-
                 if (myFriendIds.length > 0) {
                     try {
                         const friendsPromises = myFriendIds.map(async (id) => {
-                            const friendDocRef = doc(db, "users", id);
-                            const friendDoc = await getDoc(friendDocRef);
-                            if (!friendDoc.exists()) return null;
-                            return { uid: friendDoc.id, ...friendDoc.data() };
+                            const friendDoc = await getDoc(doc(db, "users", id));
+                            return friendDoc.exists() ? { uid: friendDoc.id, ...friendDoc.data() } : null;
                         });
-                        const rawFriendsData = await Promise.all(friendsPromises);
-                        const cleanFriendsList = rawFriendsData.filter(friend => friend !== null);
-                        setFriends(cleanFriendsList);
+                        setFriends((await Promise.all(friendsPromises)).filter(friend => friend !== null));
                     } catch (error) { console.error("Friends fetch error:", error); }
-                } else {
-                    setFriends([]);
-                }
+                } else setFriends([]);
             }
         });
 
         return () => { peer.destroy(); unsubFriends(); };
     }, [user]);
 
-    // ==============================================================
-    // 7. PROFILE SETUP FUNCTION 
-    // ==============================================================
     const setupProfile = async (name, username, phone) => {
         if (!user) return;
-        try {
-            const googlePhoto = user.photoURL || "";
-            await setDoc(doc(db, "users", user.uid), {
-                name: name, username: username.toLowerCase().trim(), phone: phone,
-                photo: googlePhoto, photoURL: googlePhoto, uid: user.uid, updatedAt: serverTimestamp()
-            }, { merge: true });
-        } catch (error) { console.error("Setup error:", error); }
+        const googlePhoto = user.photoURL || "";
+        await setDoc(doc(db, "users", user.uid), { name, username: username.toLowerCase().trim(), phone, photo: googlePhoto, photoURL: googlePhoto, uid: user.uid, updatedAt: serverTimestamp() }, { merge: true });
     };
 
-    // ==============================================================
-    // 8. SEARCH USERS FUNCTION
-    // ==============================================================
     const searchUsers = async (searchTerm) => {
-        try {
-            const term = searchTerm.toLowerCase().replace(/\s+/g, '');
-            if (!term) return [];
-            const usersRef = collection(db, "users");
-            const q = query(usersRef, where("username", ">=", term), where("username", "<=", term + '\uf8ff'));
-            const snapshot = await getDocs(q);
-            const results = [];
-            snapshot.forEach((docSnap) => { if (docSnap.id !== user.uid) results.push({ uid: docSnap.id, ...docSnap.data() }); });
-            return results;
-        } catch (error) { return []; }
+        const term = searchTerm.toLowerCase().replace(/\s+/g, '');
+        if (!term) return [];
+        const snapshot = await getDocs(query(collection(db, "users"), where("username", ">=", term), where("username", "<=", term + '\uf8ff')));
+        const results = [];
+        snapshot.forEach((docSnap) => { if (docSnap.id !== user.uid) results.push({ uid: docSnap.id, ...docSnap.data() }); });
+        return results;
     };
 
-    // ==============================================================
-    // 9. FRIEND REQUEST LOGIC
-    // ==============================================================
     const acceptFriendRequest = async (requestId, senderId) => {
-        try {
-            if (!user?.uid || !senderId) return;
-            await updateDoc(doc(db, "users", user.uid), { friends: arrayUnion(senderId) });
-            await deleteDoc(doc(db, "friendRequests", requestId));
-            await updateDoc(doc(db, "users", senderId), { friends: arrayUnion(user.uid) });
-        } catch (error) { console.error(error); }
+        if (!user?.uid || !senderId) return;
+        await updateDoc(doc(db, "users", user.uid), { friends: arrayUnion(senderId) });
+        await deleteDoc(doc(db, "friendRequests", requestId));
+        await updateDoc(doc(db, "users", senderId), { friends: arrayUnion(user.uid) });
     };
 
-    const rejectFriendRequest = async (requestId) => {
-        try { if (requestId) await deleteDoc(doc(db, "friendRequests", requestId)); } catch (error) { }
-    };
+    const rejectFriendRequest = async (requestId) => { if (requestId) await deleteDoc(doc(db, "friendRequests", requestId)); };
 
-    // ==============================================================
-    // 10. DELETE FRIEND FUNCTION 
-    // ==============================================================
     const deleteFriend = async (friendId) => {
-        try {
-            if (!user?.uid || !friendId) return;
-            await updateDoc(doc(db, "users", user.uid), { friends: arrayRemove(friendId) });
-            await updateDoc(doc(db, "users", friendId), { friends: arrayRemove(user.uid) });
-            setSelectedFriend(null);
-        } catch (error) { }
+        if (!user?.uid || !friendId) return;
+        await updateDoc(doc(db, "users", user.uid), { friends: arrayRemove(friendId) });
+        await updateDoc(doc(db, "users", friendId), { friends: arrayRemove(user.uid) });
+        setSelectedFriend(null);
     };
 
-    // ==============================================================
-    // 11. SAVE FCM TOKEN
-    // ==============================================================
     const saveFCMToken = async () => {
         try {
             const messaging = getMessaging();
             const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
-            if (currentToken) { await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true }); }
+            if (currentToken) await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
         } catch (err) { }
     };
 
