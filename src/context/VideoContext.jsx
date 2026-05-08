@@ -27,6 +27,9 @@ export const VideoProvider = ({ children }) => {
     const peerInstance = useRef(null);
     const localStreamRef = useRef(null);
 
+    // 🔥 FIX 1: Naya Ref jo sirf Current Call ka ID yaad rakhega (Rapid Recall Bug Fix)
+    const activeSignalId = useRef(null);
+
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
     const [callTimer, setCallTimer] = useState(0);
@@ -108,16 +111,18 @@ export const VideoProvider = ({ children }) => {
         const unsubIncoming = onSnapshot(qIncoming, (snapshot) => {
             const currentStatus = callStatusRef.current;
             if (!snapshot.empty) {
+                const firstDoc = snapshot.docs[0];
                 if (currentStatus === 'idle') {
-                    const signalData = snapshot.docs[0].data();
-                    setCallerInfo({
-                        uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type
-                    });
+                    // 🔥 FIX 2: Receiver ko pata chal gaya call ka exact ID kya hai
+                    activeSignalId.current = firstDoc.id;
+                    const signalData = firstDoc.data();
+                    setCallerInfo({ uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type });
                     setCallStatus('receiving');
                 }
             } else {
                 if (currentStatus === 'receiving' && !isConnectingRef.current) {
                     setCallStatus('idle'); setCallerInfo(null); setIncomingCall(null);
+                    activeSignalId.current = null;
                 }
             }
         });
@@ -205,10 +210,12 @@ export const VideoProvider = ({ children }) => {
 
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
 
-            await addDoc(collection(db, "signals"), {
+            // 🔥 FIX 3: Caller ne DB me call ka ID note kar liya
+            const signalRef = await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
+            activeSignalId.current = signalRef.id;
 
             const receiverDoc = await getDoc(doc(db, "users", targetUid));
             if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
@@ -236,8 +243,7 @@ export const VideoProvider = ({ children }) => {
             });
             call.on('close', () => endCall());
         } catch (err) {
-            // 🔥 Ye naya log batayega ki error hardware ki wajah se aayi thi ya nahi
-            console.error("❌ START CALL ERROR (Hardware lock ho sakta hai):", err);
+            console.error("❌ START CALL ERROR:", err);
             isConnectingRef.current = false; setCallStatus('idle');
         }
     };
@@ -259,11 +265,8 @@ export const VideoProvider = ({ children }) => {
                 }
             }, 300);
 
-            const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-            const snap = await getDocs(q);
-            const deletePromises = [];
-            snap.forEach((d) => deletePromises.push(deleteDoc(doc(db, "signals", d.id))));
-            await Promise.all(deletePromises);
+            // 🔥 FIX 4: "Accept Bug" Khatam! Yahan se wo galti wala code hata diya jo signal delete karke caller ki call drop kara raha tha. 
+            // Ab signal endCall par hi delete hoga.
 
             if (incomingCall) {
                 incomingCall.answer(stream);
@@ -291,7 +294,7 @@ export const VideoProvider = ({ children }) => {
             }
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
         } catch (err) {
-            console.error("❌ ACCEPT CALL ERROR (Hardware lock ho sakta hai):", err);
+            console.error("❌ ACCEPT CALL ERROR:", err);
             isConnectingRef.current = false; endCall();
         }
     };
@@ -301,6 +304,10 @@ export const VideoProvider = ({ children }) => {
 
         const prevStatus = callStatusRef.current;
         callStatusRef.current = 'idle';
+
+        // 🔥 FIX 5: Nayi call lagne se pehle sirf isi call ka kachra ID nikal liya 
+        const signalToDelete = activeSignalId.current;
+        activeSignalId.current = null; // Taki nayi call is variable se safe rahe
 
         if (prevStatus !== 'idle') {
             const isMissed = prevStatus === 'ringing' || prevStatus === 'receiving';
@@ -314,41 +321,30 @@ export const VideoProvider = ({ children }) => {
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
-            const cleanupPromises = [];
-            const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
-            const snapIncoming = await getDocs(qIncoming);
-            snapIncoming.forEach((d) => cleanupPromises.push(deleteDoc(doc(db, "signals", d.id))));
-
-            const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
-            const snapOutgoing = await getDocs(qOutgoing);
-            snapOutgoing.forEach((d) => cleanupPromises.push(deleteDoc(doc(db, "signals", d.id))));
-
-            await Promise.all(cleanupPromises);
+            // 🔥 FIX 6: Targeted Delete! Ab loops ki zaroorat nahi, sirf current call ka signal udayega
+            if (signalToDelete) {
+                await deleteDoc(doc(db, "signals", signalToDelete));
+            }
         } catch (error) { console.error("Signal cleanup failed:", error); }
 
         if (currentCall) currentCall.close();
         if (incomingCall) incomingCall.close();
 
-        // 🔥 FIX: EXTREME HARDWARE CLEANUP (Tumhara Doubt Yahan Fix Hua Hai)
+        // 🔥 FIX 7: Hardware Lock Release (Camera aur Mic ki full safety)
         const killTracks = (stream) => {
             if (stream && stream.getTracks) {
-                stream.getTracks().forEach(track => {
-                    track.stop(); // Hardware release karo
-                });
+                stream.getTracks().forEach(track => track.stop());
             }
         };
 
-        // 1. Memory wala stream kill karo
         killTracks(localStreamRef.current);
         localStreamRef.current = null;
 
-        // 2. Apni video ke element se track dhundh ke kill karo
         if (myVideo.current && myVideo.current.srcObject) {
             killTracks(myVideo.current.srcObject);
             myVideo.current.srcObject = null;
         }
 
-        // 3. Dusre ki video stream kill karo
         if (remoteVideo.current && remoteVideo.current.srcObject) {
             killTracks(remoteVideo.current.srcObject);
             remoteVideo.current.srcObject = null;
