@@ -95,7 +95,7 @@ export default function CallInterface() {
     return (
         <div className="fixed inset-0 bg-black z-[100] flex flex-col md:flex-row overflow-hidden animate-in fade-in duration-700">
 
-            {/* 🔥 FIXED TIMER (Ab ye kisi box ke andar nahi hai, hamesha dikhega) */}
+            {/* 🔥 FIXED TIMER */}
             <div className="absolute top-6 right-6 z-[120] flex flex-col items-end gap-2">
                 <span className="bg-blue-600 text-white text-[11px] font-mono font-bold px-3 py-0.5 rounded shadow-lg">
                     {formatTime(callTimer)}
@@ -105,7 +105,7 @@ export default function CallInterface() {
                 </span>
             </div>
 
-            {/* 🟢 REMOTE SIDE (Saamne wala) */}
+            {/* 🟢 REMOTE SIDE */}
             <div className={`relative bg-zinc-900 flex items-center justify-center overflow-hidden transition-all duration-500 
                 ${isVideoCall ? 'h-1/2 md:h-full md:w-1/2 border-b md:border-b-0 md:border-r border-white/10' : 'h-full w-full'}`}>
 
@@ -116,7 +116,7 @@ export default function CallInterface() {
                     className={`w-full h-full object-cover ${(isRemoteCameraOff || !isVideoCall) ? 'hidden' : 'block'}`}
                 />
 
-                {/* Fallback Photo (Audio call ya remote camera off ke liye) */}
+                {/* Fallback Photo */}
                 {(isRemoteCameraOff || !isVideoCall) && (
                     <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-6">
                         <img
@@ -137,7 +137,7 @@ export default function CallInterface() {
                 </div>
             </div>
 
-            {/* 🔵 LOCAL SIDE (Meri Video - Sirf Video Call mein dikhegi) */}
+            {/* 🔵 LOCAL SIDE */}
             {isVideoCall && (
                 <div className="relative h-1/2 md:h-full md:w-1/2 bg-zinc-950 flex items-center justify-center overflow-hidden">
                     <video
@@ -162,17 +162,23 @@ export default function CallInterface() {
 
             {/* --- CALL CONTROLS --- */}
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-6 bg-black/40 backdrop-blur-xl px-6 py-3 rounded-full border border-white/10 shadow-2xl">
-                <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl ${isMuted ? 'bg-zinc-800 opacity-80' : 'bg-white/10'}`}>
+                <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all duration-300 ${isMuted ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}>
                     {isMuted ? '🔇' : '🎙️'}
                 </button>
 
                 {isVideoCall && (
-                    <button onClick={toggleCamera} className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl ${isCameraOff ? 'bg-zinc-800 opacity-80' : 'bg-white/10'}`}>
-                        📹 {isCameraOff && <span className="absolute w-[120%] h-[3px] bg-red-500 -rotate-45"></span>}
+                    <button
+                        onClick={toggleCamera}
+                        // 🔥 FIX: Added 'relative' and 'overflow-hidden' here
+                        className={`relative overflow-hidden w-14 h-14 rounded-full flex items-center justify-center text-2xl transition-all duration-300 ${isCameraOff ? 'bg-zinc-800 opacity-80' : 'bg-white/10 hover:bg-white/20'}`}
+                    >
+                        📹
+                        {/* 🔥 FIX: Red line will now be clipped to the button's circle */}
+                        {isCameraOff && <span className="absolute w-[110%] h-[3px] bg-red-500 -rotate-45 shadow-sm"></span>}
                     </button>
                 )}
 
-                <button onClick={endCall} className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl hover:bg-red-700">
+                <button onClick={endCall} className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center text-3xl hover:bg-red-700 active:scale-90 transition-transform">
                     <span className="inline-block rotate-[135deg]">📞</span>
                 </button>
             </div>

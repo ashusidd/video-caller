@@ -78,6 +78,7 @@ export const VideoProvider = ({ children }) => {
 
     useEffect(() => {
         if (authloading) return;
+
         if (!user) {
             setIsLoading(false); setUserData(null); setFriends([]); setSelectedFriend(null);
             return;
@@ -109,7 +110,9 @@ export const VideoProvider = ({ children }) => {
             if (!snapshot.empty) {
                 if (currentStatus === 'idle') {
                     const signalData = snapshot.docs[0].data();
-                    setCallerInfo({ uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type });
+                    setCallerInfo({
+                        uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type
+                    });
                     setCallStatus('receiving');
                 }
             } else {
@@ -193,16 +196,28 @@ export const VideoProvider = ({ children }) => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
             localStreamRef.current = stream;
 
-            if (myVideo.current) {
-                myVideo.current.srcObject = stream;
-                myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
-            }
+            // DOM rendering timeout delay
+            setTimeout(() => {
+                if (myVideo.current) {
+                    myVideo.current.srcObject = stream;
+                    myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
+                }
+            }, 300);
 
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
+
             await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
+
+            const receiverDoc = await getDoc(doc(db, "users", targetUid));
+            if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
+                fetch('/api/notify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: isVideo ? 'video' : 'audio', fromId: user.uid })
+                }).catch(e => console.error(e));
+            }
 
             const call = peerInstance.current.call(targetUid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
             setCurrentCall(call);
@@ -213,10 +228,12 @@ export const VideoProvider = ({ children }) => {
 
             call.on('stream', (remStream) => {
                 setCallStatus('connected');
-                if (remoteVideo.current) {
-                    remoteVideo.current.srcObject = remStream;
-                    remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                }
+                setTimeout(() => {
+                    if (remoteVideo.current) {
+                        remoteVideo.current.srcObject = remStream;
+                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                    }
+                }, 300);
             });
             call.on('close', () => endCall());
         } catch (err) {
@@ -241,7 +258,6 @@ export const VideoProvider = ({ children }) => {
                 }
             }, 300);
 
-            // 🔥 FIX: Async deletion wait with Promise.all
             const q = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snap = await getDocs(q);
             const deletePromises = [];
@@ -251,21 +267,35 @@ export const VideoProvider = ({ children }) => {
             if (incomingCall) {
                 incomingCall.answer(stream);
                 incomingCall.on('stream', (remStream) => {
-                    if (remoteVideo.current) {
-                        remoteVideo.current.srcObject = remStream;
-                        remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                    }
+                    setTimeout(() => {
+                        if (remoteVideo.current) {
+                            remoteVideo.current.srcObject = remStream;
+                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                        }
+                    }, 300);
                 });
                 incomingCall.on('close', () => endCall());
+            } else {
+                const call = peerInstance.current.call(callerInfo.uid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
+                setCurrentCall(call);
+                call.on('stream', (remStream) => {
+                    setTimeout(() => {
+                        if (remoteVideo.current) {
+                            remoteVideo.current.srcObject = remStream;
+                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                        }
+                    }, 300);
+                });
+                call.on('close', () => endCall());
             }
-            setTimeout(() => { isConnectingRef.current = false; }, 1000);
+            setTimeout(() => { isConnectingRef.current = false; }, 2000);
         } catch (err) { isConnectingRef.current = false; endCall(); }
     };
 
     const endCall = async () => {
         isConnectingRef.current = true;
 
-        // 🔥 FIX: Turant locally state ko 'idle' declare kar do (Race Condition se bachne ke liye)
+        // 🔥 FIX: Synchronous reset taaki code confuse na ho
         const prevStatus = callStatusRef.current;
         callStatusRef.current = 'idle';
 
@@ -274,15 +304,15 @@ export const VideoProvider = ({ children }) => {
             const remoteId = selectedFriend?.uid || callerInfo?.uid;
             const remoteName = selectedFriend?.name || callerInfo?.name;
             const callType = callerInfo?.callType || 'video';
+
             if (remoteId) saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
         }
 
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
-            // 🔥 FIX: Cleanup 100% complete hone tak wait karega Promise.all ke zariye
+            // 🔥 FIX: Firebase Cleanup ekdum solid kar diya
             const cleanupPromises = [];
-
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
             snapIncoming.forEach((d) => cleanupPromises.push(deleteDoc(doc(db, "signals", d.id))));
@@ -328,6 +358,8 @@ export const VideoProvider = ({ children }) => {
 
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
+        // 🔥 FIX: RACE CONDITION SOLVED
+        // Ab Firebase check nahi karega, seedha PeerJS ka stream accept karega!
         peer.on('call', async (call) => {
             if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
                 call.answer(); setTimeout(() => call.close(), 500); return;
@@ -339,17 +371,19 @@ export const VideoProvider = ({ children }) => {
                     setCurrentCall(call);
                     call.on('stream', (remStream) => {
                         setCallStatus('connected');
-                        if (remoteVideo.current) {
-                            remoteVideo.current.srcObject = remStream;
-                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play();
-                        }
+                        setTimeout(() => {
+                            if (remoteVideo.current) {
+                                remoteVideo.current.srcObject = remStream;
+                                remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play();
+                            }
+                        }, 300);
                     });
                     call.on('close', () => endCall());
                 }, 300);
                 return;
             }
 
-            // 🔥 FIX: Firebase check hata diya! Kyunki PeerJS jyada fast hai, ab direct caller data uthayega.
+            // Dekho yahan se purana query() wala hissa gayab hai
             setCallerInfo(call.metadata);
             setIncomingCall(call);
             setCallStatus('receiving');
@@ -361,10 +395,14 @@ export const VideoProvider = ({ children }) => {
                 if (myFriendIds.length > 0) {
                     try {
                         const friendsPromises = myFriendIds.map(async (id) => {
-                            const friendDoc = await getDoc(doc(db, "users", id));
-                            return friendDoc.exists() ? { uid: friendDoc.id, ...friendDoc.data() } : null;
+                            const friendDocRef = doc(db, "users", id);
+                            const friendDoc = await getDoc(friendDocRef);
+                            if (!friendDoc.exists()) return null;
+                            return { uid: friendDoc.id, ...friendDoc.data() };
                         });
-                        setFriends((await Promise.all(friendsPromises)).filter(friend => friend !== null));
+                        const rawFriendsData = await Promise.all(friendsPromises);
+                        const cleanFriendsList = rawFriendsData.filter(friend => friend !== null);
+                        setFriends(cleanFriendsList);
                     } catch (error) { console.error("Friends fetch error:", error); }
                 } else setFriends([]);
             }
