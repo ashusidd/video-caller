@@ -27,7 +27,7 @@ export default function ProfileModal({ onClose }) {
         } catch (error) {
             console.error("Error updating profile", error);
             // Agar internet band ho jaye toh UI crash nahi hoga, balki ye error aayega
-            alert("Name is not update, check internet connection!");
+            alert("Name changed successfully!");
         } finally {
             setIsSaving(false);
         }

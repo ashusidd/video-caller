@@ -159,6 +159,42 @@ export const VideoProvider = ({ children }) => {
         return () => clearInterval(timerRef.current);
     }, [callStatus]);
 
+    // ==============================================================
+    // 🚨 NEW FIX: REFRESH YA BACK HONE PAR EMERGENCY KILL SWITCH
+    // ==============================================================
+    useEffect(() => {
+        if (callStatus === 'idle') return;
+
+        // 1. Tab Close ya Refresh handle karna
+        const handleUnload = () => {
+            if (currentCall) currentCall.close();
+            if (incomingCall) incomingCall.close();
+
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+            }
+        };
+
+        // 2. Back Button handle karna
+        const handlePopState = () => {
+            // User ko usi page par rok lo
+            window.history.pushState(null, '', window.location.href);
+            // End call chala do taaki proper cleanup ho jaye
+            endCall();
+        };
+
+        window.addEventListener('beforeunload', handleUnload);
+
+        // Fake history state taaki back button trap ho jaye
+        window.history.pushState(null, '', window.location.href);
+        window.addEventListener('popstate', handlePopState);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleUnload);
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [callStatus, currentCall, incomingCall]);
+
     const toggleMic = () => {
         if (localStreamRef.current) {
             const audioTrack = localStreamRef.current.getAudioTracks()[0];
