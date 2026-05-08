@@ -292,13 +292,16 @@ export const VideoProvider = ({ children }) => {
         try {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
-            const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            localStreamRef.current = stream;
 
+            // 🔥 FIX: Naya camera access mangne se PEHLE purana wala kill karo!
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(track => track.stop());
                 localStreamRef.current = null;
             }
+
+            // Ab fresh naya stream lo
+            const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            localStreamRef.current = stream;
 
             setCallStatus('connected');
             await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
