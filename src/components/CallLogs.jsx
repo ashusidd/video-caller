@@ -36,7 +36,10 @@ export default function CallLogs({ filterId }) {
 
                     // 🔥 THE 24-HOUR AUTO-DELETE: Purane logs database se uda do
                     if (logTime < twentyFourHoursAgo) {
-                        deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("Old log delete failed:", err));
+                        // 🔥 NEW FIX: Firebase rules ke hisaab se sirf caller delete kar sakta hai
+                        if (data.callerId === user.uid) {
+                            deleteDoc(doc(db, "calls", docSnap.id)).catch(err => console.error("Old log delete failed:", err));
+                        }
                     }
                     else {
                         // Sirf wahi dikhao jo dost (filterId) ke sath calls hui hain
