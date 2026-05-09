@@ -118,14 +118,15 @@ export default function CallInterface() {
 
                 {/* Fallback Photo */}
                 {(isRemoteCameraOff || !isVideoCall) && (
-                    <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-6">
+                    <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                         <img
                             src={selectedFriend?.photo || callerInfo?.photo || `https://ui-avatars.com/api/?name=${selectedFriend?.name || callerInfo?.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
                             className={`${isVideoCall ? 'w-32 h-32' : 'w-48 h-48'} rounded-full border-4 border-zinc-800 object-cover shadow-2xl opacity-40 grayscale`}
                             alt="Avatar"
                         />
+                        {/* 🔥 FIX: Audio call aur Camera Off ka logic yahan handle ho raha hai */}
                         <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse">
-                            {isRemoteCameraOff ? 'Camera Off' : 'Audio Call Active'}
+                            {!isVideoCall ? 'Audio Call' : 'Camera is off'}
                         </span>
                     </div>
                 )}
@@ -149,12 +150,16 @@ export default function CallInterface() {
                     />
 
                     {isCameraOff && (
-                        <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center">
+                        <div className="absolute inset-0 bg-[#0b141a] flex flex-col items-center justify-center gap-4">
                             <img
                                 src={userData?.photo || `https://ui-avatars.com/api/?name=${userData?.name || 'U'}`}
-                                className="w-24 h-24 rounded-full border-2 border-zinc-800 opacity-20"
+                                className="w-24 h-24 rounded-full border-2 border-zinc-800 opacity-20 object-cover"
                                 alt="Me"
                             />
+                            {/* 🔥 FIX: Tumhari screen ke liye bhi 'Camera is off' ka text yahan add kar diya gaya hai */}
+                            <span className="text-zinc-500 font-mono text-[10px] tracking-widest uppercase animate-pulse opacity-50">
+                                Camera is off
+                            </span>
                         </div>
                     )}
                 </div>
