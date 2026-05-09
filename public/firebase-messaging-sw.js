@@ -4,30 +4,31 @@ messaging.onBackgroundMessage((payload) => {
     const isMissed = payload.data.type === 'missed';
     const isAudio = payload.data.type === 'audio';
 
-    // 🔥 NAYA FIX: Audio ya Video ke hisaab se Title set hoga
+    // 🔥 FIX 1: Variables upar define kiye taaki Crash na ho
+    const callerId = payload.data.fromId || '';
+    const callerName = payload.data.fromName || 'Someone';
+
+    // Title aur Body set karna
     const notificationTitle = isMissed
         ? `⚠️ Missed call from ${callerName}`
         : `📞 ${callerName} is calling... (${isAudio ? 'Audio' : 'Video'})`;
 
-    const callerId = payload.data.fromId || '';
-    const callerName = payload.data.fromName || 'Someone';
-
     const notificationOptions = {
-        // 🔥 NAYA FIX: Body text bhi dynamic ho gaya hai
         body: isMissed
             ? `You missed a call from ${callerName}`
             : `${callerName} is calling you for a ${isAudio ? 'audio' : 'video'} call...`,
         icon: '/favicon.svg',
-        tag: 'vcall-sync-tag',
+        tag: 'vcall-sync-tag', // Ye tag purani notification ko overwrite karega!
         renotify: true,
         requireInteraction: !isMissed,
         vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
+
+        // 🔥 FIX 2: Accept button hata diya, sirf Decline rakha hai
         actions: isMissed ? [] : [
-            { action: 'accept', title: '✅ Accept' },
             { action: 'decline', title: '❌ Decline' }
         ],
         data: {
-            // 🔥 NAYA FIX: Agar missed call ki notification par click karega toh direct chat khulegi
+            // 🔥 Missed hone par direct chat par bhejega
             url: isMissed ? `/chat/${callerId}` : `/?incomingCall=true&callerId=${callerId}&callerName=${callerName}&type=${payload.data.type || 'video'}`
         }
     };
@@ -41,11 +42,9 @@ self.addEventListener('notificationclick', function (event) {
     const baseUrl = 'https://v-call-hd.vercel.app';
     let targetUrl = baseUrl + (event.notification.data.url || '/');
 
-    // 🔥 NAYA FIX: URL me action pass kar rahe hain (Accept/Decline)
-    if (event.action === 'accept') {
-        targetUrl += '&callAction=accept';
-    } else if (event.action === 'decline') {
-        targetUrl += '&callAction=decline';
+    // 🔥 Agar user Decline dabaye
+    if (event.action === 'decline') {
+        targetUrl += targetUrl.includes('?') ? '&callAction=decline' : '?callAction=decline';
     }
 
     event.waitUntil(

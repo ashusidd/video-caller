@@ -1,4 +1,4 @@
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 // Contexts
@@ -14,42 +14,58 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Decline aur Missed calls handle karega
+// 📞 CALL HANDLER: Smart Action Lock ke saath
 // ==============================================================
 function CallHandler() {
-  const { endCall, callStatus, isLoading } = useContext(VideoContext);
+  const { acceptCall, endCall, callStatus, isLoading } = useContext(VideoContext);
   const location = useLocation();
   const navigate = useNavigate();
 
+  // 🔥 FIX 2: Double Execution Rokne ke liye Action Lock
+  const actionHandled = useRef(false);
+
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
+    const params = newSearchParams(location.search);
     const action = params.get('callAction');
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    // ❌ DECLINE CALL LOGIC
-    if (action === 'decline') {
-      console.log("❌ Notification Declined: Ending call...");
-      endCall();
-      window.history.replaceState({}, document.title, "/");
+    // ✅ ACCEPT BUTTON TAP LOGIC (Lock ke sath)
+    if (action === 'accept' && callStatus === 'receiving' && !actionHandled.current) {
+      actionHandled.current = true;
+      console.log("🚀 Action: Explicit ACCEPT Clicked");
+      acceptCall();
+      navigate(location.pathname, { replace: true }); // Turant URL clean karega
+      return;
     }
 
-    // ⚠️ MISSED CALL REDIRECT LOGIC
-    // Agar URL incoming hai, aur user ne decline nahi kiya (shayad late accept kiya ya miss ho gaya)
-    if (isIncoming === 'true' && callerId && !isLoading && action !== 'decline') {
+    // ❌ DECLINE BUTTON TAP LOGIC (Lock ke sath)
+    if (action === 'decline' && callStatus === 'receiving' && !actionHandled.current) {
+      actionHandled.current = true;
+      console.log("❌ Action: Explicit DECLINE Clicked");
+      endCall();
+      navigate(location.pathname, { replace: true }); // Turant URL clean karega
+      return;
+    }
+
+    // ⚠️ NORMAL BODY TAP YA MISSED CALL LOGIC
+    // Agar user ne body pe tap kiya (action nahi hai) aur call aa rahi thi
+    if (isIncoming === 'true' && callerId && !isLoading && !action) {
       const timer = setTimeout(() => {
-        // Agar 1.5 seconds ke baad app idle state mein hai (call connect nahi hui)
+        // Agar thodi der baad call marr chuki hai toh chat me bhejo
         if (callStatus === 'idle') {
-          console.log("Call was missed or cut! Redirecting to chat...");
+          console.log("Call missed/cut! Redirecting to chat...");
           navigate(`/chat/${callerId}`, { replace: true });
-          window.history.replaceState({}, document.title, `/chat/${callerId}`);
+        } else {
+          // Agar call zinda hai toh UI aane do aur URL clean kardo taaki refresh pe dikkat na ho
+          navigate(location.pathname, { replace: true });
         }
       }, 1500);
 
       return () => clearTimeout(timer);
     }
 
-  }, [location, endCall, callStatus, isLoading, navigate]);
+  }, [location.search, callStatus, isLoading, navigate, acceptCall, endCall]);
 
   return null;
 }
@@ -58,8 +74,6 @@ function App() {
   const { user, loading: authloading } = useContext(AuthContext);
   const { userData, callStatus, isLoading: videoLoading } = useContext(VideoContext);
 
-  // ==============================================================
-  // THE ZERO-BLINK SHIELD 
   const isSyncing = authloading || videoLoading || (user && userData === null);
 
   if (isSyncing) {
@@ -81,10 +95,6 @@ function App() {
       </div>
     );
   }
-
-  // ==============================================================
-  // 🛡️ CONDITIONAL RENDERING (No Redirect = No Blink)
-  // ==============================================================
 
   if (!user) return <Auth />;
   if (user && !userData?.username) return <Onboarding />;

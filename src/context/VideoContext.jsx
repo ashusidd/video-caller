@@ -29,7 +29,6 @@ export const VideoProvider = ({ children }) => {
 
     const activeSignalId = useRef(null);
 
-    // 🔥 NEW REFS: Ghost call ko pehchanne ke liye
     const currentCallRef = useRef(null);
     const incomingCallRef = useRef(null);
 
@@ -70,21 +69,8 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
-    // 🔥 FIX 1: Notification ka "Accept" ab yahan safely Firebase data aane ke baad chalega
-    useEffect(() => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const autoAccept = urlParams.get('autoAccept') === 'true' || urlParams.get('callAction') === 'accept';
-
-        if (autoAccept && callStatus === 'receiving') {
-            setTimeout(() => {
-                acceptCall();
-                const url = new URL(window.location.href);
-                url.searchParams.delete('autoAccept');
-                url.searchParams.delete('callAction');
-                window.history.replaceState(null, '', url.pathname + url.search);
-            }, 500);
-        }
-    }, [callStatus]);
+    // 🔥 FIX 1: Yahan se old "autoAccept" wala useEffect POORI TARAH DELETE kar diya hai.
+    // Ab URL check karne ka kaam sirf App.jsx (CallHandler) safely karega.
 
     useEffect(() => {
         if (authloading) return;
@@ -283,8 +269,6 @@ export const VideoProvider = ({ children }) => {
                 }, 300);
             });
 
-            // 🔥 THE GHOST KILLER FIX
-            // Agar pichli call fail ho jaye, toh wo handshake wali nayi call ko na kaate!
             outCall.on('close', () => {
                 if (currentCallRef.current === outCall) {
                     endCall();
@@ -348,7 +332,6 @@ export const VideoProvider = ({ children }) => {
                             }
                         }, 300);
                     });
-                    // 🔥 Ghost killer protection for Handshake too
                     handshakeCall.on('close', () => {
                         if (currentCallRef.current === handshakeCall) endCall();
                     });
@@ -444,7 +427,6 @@ export const VideoProvider = ({ children }) => {
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
         peer.on('call', async (call) => {
-            // 🔥 The Answer Fix: Handshake receive karte waqt current call update kar raha hai
             if (callStatusRef.current === 'connected' || callStatusRef.current === 'ringing') {
                 call.answer(localStreamRef.current);
                 setCurrentCall(call);
