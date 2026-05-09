@@ -73,10 +73,11 @@ export const VideoProvider = ({ children }) => {
     };
 
     // 🔥 THE FIX: Memory Filtering to avoid Firebase Index Error
+
     const markCallsAsViewed = async (friendId) => {
         if (!user || !friendId) return;
         try {
-            // 1. Firebase se sirf basic condition par data mango
+            // Sirf ek simple query maar rahe hain taaki Firebase block na kare
             const q = query(
                 collection(db, "calls"),
                 where("receiverId", "==", user.uid)
@@ -86,19 +87,18 @@ export const VideoProvider = ({ children }) => {
             const batch = writeBatch(db);
             let hasUpdates = false;
 
-            // 2. Baaki ki saari checking code (Memory) mein karo
             snapshot.docs.forEach((d) => {
                 const data = d.data();
-                // Check karo ki call usi dost ki ho, missed ho, aur abhi tak padhi na gayi ho
-                if (data.callerId === friendId && data.status === 'missed' && data.viewed === false) {
+                // 🔥 THE MAGIC FIX: !data.viewed (Ye false aur missing dono ko pakad lega!)
+                if (data.callerId === friendId && data.status === 'missed' && !data.viewed) {
                     batch.update(doc(db, "calls", d.id), { viewed: true });
                     hasUpdates = true;
                 }
             });
 
-            // 3. Agar koi missed call mili toh ek hi baar mein update kar do
             if (hasUpdates) {
                 await batch.commit();
+                console.log("Badge Cleared Successfully!");
             }
         } catch (e) { console.error("Badge clear error:", e); }
     };
