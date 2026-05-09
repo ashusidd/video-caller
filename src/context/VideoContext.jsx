@@ -27,7 +27,6 @@ export const VideoProvider = ({ children }) => {
     const peerInstance = useRef(null);
     const localStreamRef = useRef(null);
 
-    // Naya Ref jo Current Call ka ID yaad rakhega
     const activeSignalId = useRef(null);
 
     const [isMuted, setIsMuted] = useState(false);
@@ -158,9 +157,6 @@ export const VideoProvider = ({ children }) => {
         return () => clearInterval(timerRef.current);
     }, [callStatus]);
 
-    // ==============================================================
-    // 🚨 EMERGENCY KILL SWITCH
-    // ==============================================================
     useEffect(() => {
         if (callStatus === 'idle') return;
 
@@ -258,7 +254,16 @@ export const VideoProvider = ({ children }) => {
                 }).catch(e => console.error(e));
             }
 
-            const call = peerInstance.current.call(targetUid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
+            // 🔥 FIX: Photo ko metadata mein bhej diya! Ab profile pic override hokar null nahi hogi.
+            const call = peerInstance.current.call(targetUid, stream, {
+                metadata: {
+                    uid: user.uid,
+                    name: userData?.name,
+                    photo: userData?.photo || "",
+                    callType: isVideo ? 'video' : 'audio'
+                }
+            });
+
             setCurrentCall(call);
             setIsCameraOff(!isVideo);
 
@@ -286,7 +291,6 @@ export const VideoProvider = ({ children }) => {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
 
-            // Hardware Force Clean
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(track => track.stop());
                 localStreamRef.current = null;
@@ -307,7 +311,7 @@ export const VideoProvider = ({ children }) => {
 
             if (incomingCall) {
                 incomingCall.answer(stream);
-                setCurrentCall(incomingCall); // 🔥 SET CURRENT CALL
+                setCurrentCall(incomingCall);
                 incomingCall.on('stream', (remStream) => {
                     setTimeout(() => {
                         if (remoteVideo.current) {
@@ -318,7 +322,6 @@ export const VideoProvider = ({ children }) => {
                 });
                 incomingCall.on('close', () => endCall());
             } else {
-                // 🔥 THE GHOST CALL FIX: Yahan ab PeerJS ka purana return call block hta diya gaya hai.
                 console.log("Fast accept mode triggered! Waiting for PeerJS connection...");
             }
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
@@ -405,7 +408,6 @@ export const VideoProvider = ({ children }) => {
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
         peer.on('call', async (call) => {
-            // 🔥 THE FAST ACCEPT FIX: Agar jaldi connect hua toh incoming signal properly handle hoga
             if (callStatusRef.current === 'connected') {
                 call.answer(localStreamRef.current);
                 setCurrentCall(call);
