@@ -51,7 +51,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { currentCallRef.current = currentCall; }, [currentCall]);
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
-    // 🔥 MODIFIED: saveCallLog mein 'viewed' flag add kiya
+    // 📩 Call Log save karte waqt unread status set karna
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
         try {
@@ -65,7 +65,7 @@ export const VideoProvider = ({ children }) => {
                 receiverName: remoteName,
                 type: type,
                 status: status,
-                viewed: false, // Default unread
+                viewed: false, // Default: Unread
                 timestamp: serverTimestamp(),
                 expiresAt: expiryDate,
                 users: [user.uid, remoteId]
@@ -73,9 +73,9 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
-    // 🔥 NEW: Missed Calls ko 'viewed' mark karne ka function
+    // ✅ Click karte hi Missed Call badge hatane ka function
     const markCallsAsViewed = async (friendId) => {
-        if (!user) return;
+        if (!user || !friendId) return;
         try {
             const q = query(
                 collection(db, "calls"),
@@ -96,7 +96,7 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Error marking calls viewed:", e); }
     };
 
-    // 🔥 NEW: Call logs sunna aur Counts update karna
+    // 🔄 Call logs sunna aur Friends list sorting handle karna
     useEffect(() => {
         if (!user) return;
 
@@ -110,7 +110,7 @@ export const VideoProvider = ({ children }) => {
             const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             setCallLogs(logs);
 
-            // Calculate Unread Missed Calls per friend
+            // Badges count calculate karna
             const counts = {};
             logs.forEach(log => {
                 if (log.receiverId === user.uid && log.status === 'missed' && !log.viewed) {
@@ -123,20 +123,19 @@ export const VideoProvider = ({ children }) => {
         return () => unsubLogs();
     }, [user]);
 
-    // 🔥 NEW: Friends list ko latest activity (call) ke hisaab se sort karna
+    // 🔝 Friends List ko latest call activity se sort karna
     const sortedFriends = [...friends].sort((a, b) => {
         const lastCallA = callLogs.find(log => log.users.includes(a.uid))?.timestamp?.toMillis() || 0;
         const lastCallB = callLogs.find(log => log.users.includes(b.uid))?.timestamp?.toMillis() || 0;
         return lastCallB - lastCallA;
     });
 
-    // Handle Selecting a Friend (Wrap original setSelectedFriend)
+    // Sidebar click handler: Badge saaf karna
     const handleSetSelectedFriend = (friend) => {
         setSelectedFriend(friend);
-        if (friend?.uid) markCallsAsViewed(friend.uid); // Click karte hi badge saaf
+        if (friend?.uid) markCallsAsViewed(friend.uid);
     };
 
-    // ... (Old useEffects for User data, incoming calls, sounds, and PeerJS handshake/ghost-killer remains the same as your provided file)
     useEffect(() => {
         if (authloading) return;
         if (!user) {
@@ -494,7 +493,7 @@ export const VideoProvider = ({ children }) => {
     return (
         <VideoContext.Provider value={{
             userData, isLoading, friends: sortedFriends, selectedFriend, setSelectedFriend: handleSetSelectedFriend,
-            startCall, acceptCall, endCall, requestCount, unreadCounts, // 🔥 Unread counts aur sorted friends list
+            startCall, acceptCall, endCall, requestCount, unreadCounts,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
             setupProfile, searchUsers, saveFCMToken,
