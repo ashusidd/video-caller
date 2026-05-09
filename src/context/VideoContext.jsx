@@ -69,9 +69,6 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
-    // 🔥 FIX 1: Yahan se old "autoAccept" wala useEffect POORI TARAH DELETE kar diya hai.
-    // Ab URL check karne ka kaam sirf App.jsx (CallHandler) safely karega.
-
     useEffect(() => {
         if (authloading) return;
 
@@ -122,8 +119,16 @@ export const VideoProvider = ({ children }) => {
 
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
-            if (snapshot.empty && callStatusRef.current === 'ringing' && !isConnectingRef.current) {
-                setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 3000);
+            // 🔥 THE FIX: The Speed Cut Bug Resolved
+            if (snapshot.empty && callStatusRef.current === 'ringing') {
+                if (activeSignalId.current) {
+                    // Agar signal ban chuka tha aur ab gayab hai, matlab saamne wale ne Decline kar diya!
+                    console.log("Receiver declined rapidly! Cutting call...");
+                    endCall();
+                } else if (!isConnectingRef.current) {
+                    // Failsafe timeout
+                    endCall();
+                }
             }
         });
 
@@ -239,6 +244,7 @@ export const VideoProvider = ({ children }) => {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
+            // 🔥 Active ID yahan set hoti hai, jiske baad Decline hone par instant cut hoga
             activeSignalId.current = signalRef.id;
 
             const receiverDoc = await getDoc(doc(db, "users", targetUid));
@@ -365,7 +371,26 @@ export const VideoProvider = ({ children }) => {
             const remoteName = selectedFriend?.name || callerInfo?.name;
             const callType = callerInfo?.callType || 'video';
 
-            if (remoteId) saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
+            if (remoteId) {
+                saveCallLog(remoteId, remoteName, callType, isMissed ? 'missed' : 'completed');
+
+                if (isMissed && prevStatus === 'ringing') {
+                    getDoc(doc(db, "users", remoteId)).then(docSnap => {
+                        if (docSnap.exists() && docSnap.data().fcmToken) {
+                            fetch('/api/notify', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    token: docSnap.data().fcmToken,
+                                    fromName: userData?.name,
+                                    type: 'missed',
+                                    fromId: user.uid
+                                })
+                            }).catch(e => console.error("Notification Error:", e));
+                        }
+                    }).catch(e => console.log(e));
+                }
+            }
         }
 
         try {

@@ -14,7 +14,7 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Smart Action Lock ke saath
+// 📞 CALL HANDLER: Smart Action Lock
 // ==============================================================
 function CallHandler() {
   const { acceptCall, endCall, callStatus, isLoading } = useContext(VideoContext);
@@ -24,11 +24,12 @@ function CallHandler() {
   const actionHandled = useRef(false);
 
   useEffect(() => {
-    // 🔥 THE FIX: Yahan 'newSearchParams' ki jagah 'new URLSearchParams' kar diya hai
     const params = new URLSearchParams(location.search);
     const action = params.get('callAction');
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
+
+    if (!isIncoming) return; // Agar regular route hai toh aage badho
 
     // ✅ ACCEPT BUTTON TAP LOGIC
     if (action === 'accept' && callStatus === 'receiving' && !actionHandled.current) {
@@ -39,22 +40,24 @@ function CallHandler() {
       return;
     }
 
-    // ❌ DECLINE BUTTON TAP LOGIC
+    // ❌ DECLINE BUTTON TAP LOGIC (Super Fast Fix)
     if (action === 'decline' && callStatus === 'receiving' && !actionHandled.current) {
       actionHandled.current = true;
       console.log("❌ Action: Explicit DECLINE Clicked");
-      endCall();
+      endCall(); // Ye dabte hi VideoContext signal uda dega aur caller phone kaat dega
       navigate(location.pathname, { replace: true });
       return;
     }
 
     // ⚠️ NORMAL BODY TAP YA MISSED CALL LOGIC
-    if (isIncoming === 'true' && callerId && !isLoading && !action) {
+    if (callerId && !isLoading) {
       const timer = setTimeout(() => {
-        if (callStatus === 'idle') {
+        // Agar call status idle hai (matlab call miss ya cut ho chuki hai) aur user ne accept/decline nahi dabaya tha
+        if (callStatus === 'idle' && !actionHandled.current) {
           console.log("Call missed/cut! Redirecting to chat...");
           navigate(`/chat/${callerId}`, { replace: true });
-        } else {
+        } else if (!actionHandled.current && !action) {
+          // Agar bas normally tap kiya hai toh UI chalne do aur URL saaf kar do
           navigate(location.pathname, { replace: true });
         }
       }, 1500);
