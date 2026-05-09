@@ -14,7 +14,7 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Sirf Route Manage Karega
+// 📞 CALL HANDLER: Notification Tap & Deep Linking logic
 // ==============================================================
 function CallHandler() {
   const { callStatus, isLoading: videoLoading, friends, setSelectedFriend } = useContext(VideoContext);
@@ -24,37 +24,34 @@ function CallHandler() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (authLoading || videoLoading || !user) return;
+    // Jab tak sab load na ho jaye, intezar karo
+    if (authLoading || videoLoading || !user || friends.length === 0) return;
 
     const params = new URLSearchParams(location.search);
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    // ⚠️ Agar simple Notification Tap hui hai
-    if (isIncoming === 'true' && callerId) {
-      const timer = setTimeout(() => {
-        // Agar Firebase se koi zinda call nahi aayi (matlab missed ho gayi thi)
+    // 🎯 FIX: Missed call ya Notification tap handle karna
+    if (callerId) {
+      console.log("Detecting callerId from notification:", callerId);
+
+      // 1. Pehle friends list mein wo user dhoondo
+      const targetFriend = friends.find(f => f.uid === callerId);
+
+      if (targetFriend) {
+        // 2. State update karo taaki dashboard uski chat dikhaye
+        setSelectedFriend(targetFriend);
+
+        // 3. Agar call status idle hai (missed call case), toh redirect karo
         if (callStatus === 'idle') {
-          console.log("Call missed/cut! Redirecting to chat...");
-
-          // Dost ka data select karke Dashboard pe bhej do
-          const friendToSelect = friends.find(f => f.uid === callerId);
-          if (friendToSelect) {
-            setSelectedFriend(friendToSelect);
-          }
-
           navigate(`/chat/${callerId}`, { replace: true });
         } else {
-          // Agar call sach mein baj rahi hai toh URL clean kar do. 
-          // CallInterface khud hi screen par aa jayega aur tum manually Accept karoge!
+          // Agar call chal rahi hai, toh sirf URL saaf karo, CallInterface khud dikhega
           navigate(location.pathname, { replace: true });
         }
-      }, 1500);
-
-      return () => clearTimeout(timer);
+      }
     }
-
-  }, [location.search, callStatus, videoLoading, authLoading, user, navigate, friends, setSelectedFriend]);
+  }, [location.search, callStatus, videoLoading, authLoading, user, friends, navigate, setSelectedFriend]);
 
   return null;
 }
@@ -92,6 +89,7 @@ function App() {
     <Router>
       <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
+        {/* Call UI humesha top pe */}
         {callStatus !== 'idle' && <CallInterface />}
 
         <div className="flex flex-col h-full overflow-hidden">
