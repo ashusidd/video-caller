@@ -1,8 +1,8 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
-// 🔥 FIX 1: Firebase imports wapas laaye kyunki request alag collection me jayegi
+// 🔥 FIX 1: getDoc aur doc import kiya notification ke liye
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 
 export default function AddFriend() {
     const { searchUsers, userData } = useContext(VideoContext);
@@ -36,7 +36,6 @@ export default function AddFriend() {
         return () => clearTimeout(delaySearch);
     }, [query, searchUsers]);
 
-    // 🔥 FIX 2: Direct Add ko hatakar wapas Request wala logic lagaya
     const sendRequest = async (targetUser) => {
         try {
             // Check: Khud ko request toh nahi bhej rahe?
@@ -54,6 +53,25 @@ export default function AddFriend() {
                 status: "pending",
                 timestamp: serverTimestamp()
             });
+
+            // 🔥 NAYA CODE: Notification Ping Bhejna
+            try {
+                const receiverDoc = await getDoc(doc(db, "users", targetUser.uid));
+                if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
+                    fetch('/api/notify', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            token: receiverDoc.data().fcmToken,
+                            fromName: userData?.name,
+                            type: 'friend_request', // Background service worker isey pehchan lega
+                            fromId: userData.uid
+                        })
+                    }).catch(e => console.error("Notification API Error:", e));
+                }
+            } catch (notifErr) {
+                console.log("Failed to send push notification:", notifErr);
+            }
 
             alert(`Friend request sent to ${targetUser.name}! 🚀`);
             setQuery('');
@@ -112,7 +130,6 @@ export default function AddFriend() {
                                 </div>
                             </div>
                             <button
-                                // 🔥 FIX 3: Wapas sendRequest function laga diya
                                 onClick={() => sendRequest(u)}
                                 className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
                             >

@@ -15,12 +15,15 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { token, fromName, type } = req.body;
+    // 🔥 FIX: Yahan 'fromId' ko destructure karke payload mein add kiya
+    const { token, fromName, type, fromId } = req.body;
+
     const payload = {
         data: {
             fromName: fromName || "Someone",
             type: type || "incoming",
             title: "📹 V-CALL HD",
+            fromId: fromId || "" // 🔥 YE MISSING THA! Iske bina SW crash ho raha tha.
         },
         token: token
     };
