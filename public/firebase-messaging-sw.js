@@ -1,52 +1,51 @@
 // public/firebase-messaging-sw.js
 
-// 🔥 Naya version taaki purana ziddi cache turant delete ho jaye
-const SW_VERSION = 'vcall-hd-update-v5-no-buttons';
+// 1. Firebase Service Worker Scripts Import
+importScripts('https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging-compat.js');
 
-self.addEventListener('install', (event) => {
-    self.skipWaiting();
+// 2. Tumhari Asli Firebase Config (Exact Keys)
+firebase.initializeApp({
+    apiKey: "AIzaSyDkgFg6yZltbsXiSw-h7CJzxD5ekop83iY",
+    authDomain: "video-caller-2d97c.firebaseapp.com",
+    projectId: "video-caller-2d97c",
+    storageBucket: "video-caller-2d97c.firebasestorage.app",
+    messagingSenderId: "821548025065",
+    appId: "1:821548025065:web:5141e3ec11acf015afdc78"
 });
 
-self.addEventListener('activate', (event) => {
-    event.waitUntil(clients.claim());
-});
+const messaging = firebase.messaging();
 
+// 3. Background Message Handler (Bina Accept/Decline Buttons ke)
 messaging.onBackgroundMessage((payload) => {
     const isMissed = payload.data.type === 'missed';
-    const isAudio = payload.data.type === 'audio';
-
     const callerId = payload.data.fromId || '';
     const callerName = payload.data.fromName || 'Someone';
 
-    const notificationTitle = isMissed
-        ? `⚠️ Missed call from ${callerName}`
-        : `📞 ${callerName} is calling... (${isAudio ? 'Audio' : 'Video'})`;
-
     const notificationOptions = {
-        body: isMissed
-            ? `Tap to open chat with ${callerName}`
-            : `Tap to answer ${isAudio ? 'audio' : 'video'} call...`,
+        body: isMissed ? `You missed a call from ${callerName}` : `${callerName} is calling...`,
         icon: '/favicon.svg',
         tag: 'vcall-sync-tag',
         renotify: true,
         requireInteraction: !isMissed,
         vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
-
-        // ❌ SARE BUTTONS HATA DIYE GAYE HAIN!
-        actions: [],
-
+        actions: [], // ❌ Buttons hamesha ke liye hata diye hain
         data: {
-            // Agar missed call hai toh chat route, warna sirf basic incoming alert
             url: isMissed ? `/chat/${callerId}` : `/?incomingCall=true&callerId=${callerId}`
         }
     };
 
-    self.registration.showNotification(notificationTitle, notificationOptions);
+    self.registration.showNotification(
+        isMissed ? "⚠️ Missed call" : "📞 Incoming call",
+        notificationOptions
+    );
 });
 
+// 4. Notification pe tap karne par dashboard kholne ka logic
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
+    // Yahan tumhari live Vercel link hai
     const baseUrl = 'https://v-call-hd.vercel.app';
     let targetUrl = baseUrl + (event.notification.data.url || '/');
 
@@ -54,11 +53,13 @@ self.addEventListener('notificationclick', function (event) {
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
             for (let i = 0; i < windowClients.length; i++) {
                 let client = windowClients[i];
+                // Agar website pehle se khuli hai, toh wahi redirect kar do
                 if (client.url.includes('v-call-hd.vercel.app') && 'focus' in client) {
                     client.navigate(targetUrl);
                     return client.focus();
                 }
             }
+            // Agar website band hai, toh naya tab kholo
             if (clients.openWindow) return clients.openWindow(targetUrl);
         })
     );
