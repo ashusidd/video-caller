@@ -111,7 +111,6 @@ export const VideoProvider = ({ children }) => {
             if (!snapshot.empty) {
                 const firstDoc = snapshot.docs[0];
 
-                // 🔥 THE FIX: PeerJS kitna bhi fast ho, Signal ID hamesha save hogi!
                 activeSignalId.current = firstDoc.id;
 
                 if (currentStatus === 'idle') {
@@ -160,12 +159,11 @@ export const VideoProvider = ({ children }) => {
     }, [callStatus]);
 
     // ==============================================================
-    // 🚨 NEW FIX: REFRESH YA BACK HONE PAR EMERGENCY KILL SWITCH
+    // 🚨 EMERGENCY KILL SWITCH
     // ==============================================================
     useEffect(() => {
         if (callStatus === 'idle') return;
 
-        // 1. Tab Close ya Refresh handle karna
         const handleUnload = () => {
             if (currentCall) currentCall.close();
             if (incomingCall) incomingCall.close();
@@ -175,17 +173,12 @@ export const VideoProvider = ({ children }) => {
             }
         };
 
-        // 2. Back Button handle karna
         const handlePopState = () => {
-            // User ko usi page par rok lo
             window.history.pushState(null, '', window.location.href);
-            // End call chala do taaki proper cleanup ho jaye
             endCall();
         };
 
         window.addEventListener('beforeunload', handleUnload);
-
-        // Fake history state taaki back button trap ho jaye
         window.history.pushState(null, '', window.location.href);
         window.addEventListener('popstate', handlePopState);
 
@@ -293,13 +286,12 @@ export const VideoProvider = ({ children }) => {
             isConnectingRef.current = true;
             const isVideo = callerInfo?.callType === 'video';
 
-            // 🔥 FIX: Naya camera access mangne se PEHLE purana wala kill karo!
+            // Hardware Force Clean
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(track => track.stop());
                 localStreamRef.current = null;
             }
 
-            // Ab fresh naya stream lo
             const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
             localStreamRef.current = stream;
 
@@ -315,6 +307,7 @@ export const VideoProvider = ({ children }) => {
 
             if (incomingCall) {
                 incomingCall.answer(stream);
+                setCurrentCall(incomingCall); // 🔥 SET CURRENT CALL
                 incomingCall.on('stream', (remStream) => {
                     setTimeout(() => {
                         if (remoteVideo.current) {
@@ -325,17 +318,8 @@ export const VideoProvider = ({ children }) => {
                 });
                 incomingCall.on('close', () => endCall());
             } else {
-                const call = peerInstance.current.call(callerInfo.uid, stream, { metadata: { uid: user.uid, name: userData?.name, callType: isVideo ? 'video' : 'audio' } });
-                setCurrentCall(call);
-                call.on('stream', (remStream) => {
-                    setTimeout(() => {
-                        if (remoteVideo.current) {
-                            remoteVideo.current.srcObject = remStream;
-                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                        }
-                    }, 300);
-                });
-                call.on('close', () => endCall());
+                // 🔥 THE GHOST CALL FIX: Yahan ab PeerJS ka purana return call block hta diya gaya hai.
+                console.log("Fast accept mode triggered! Waiting for PeerJS connection...");
             }
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
         } catch (err) {
@@ -365,12 +349,10 @@ export const VideoProvider = ({ children }) => {
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
 
-            // 🔥 FIX: Exact ID se hi delete karega, kisi nayi call ko nahi chedega
             if (signalToDelete) {
                 await deleteDoc(doc(db, "signals", signalToDelete)).catch(e => console.log("Delete error:", e));
             }
 
-            // Backup Safety (Agar koi ghost signal fas gaya ho)
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
             snapIncoming.forEach(async (d) => { if (d.id !== activeSignalId.current) await deleteDoc(doc(db, "signals", d.id)); });
@@ -423,20 +405,36 @@ export const VideoProvider = ({ children }) => {
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
         peer.on('call', async (call) => {
-            if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing') {
+            // 🔥 THE FAST ACCEPT FIX: Agar jaldi connect hua toh incoming signal properly handle hoga
+            if (callStatusRef.current === 'connected') {
+                call.answer(localStreamRef.current);
+                setCurrentCall(call);
+                call.on('stream', (remStream) => {
+                    setTimeout(() => {
+                        if (remoteVideo.current) {
+                            remoteVideo.current.srcObject = remStream;
+                            remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                        }
+                    }, 300);
+                });
+                call.on('close', () => endCall());
+                return;
+            }
+
+            if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing' && callStatusRef.current !== 'receiving') {
                 call.answer(); setTimeout(() => call.close(), 500); return;
             }
 
             if (callStatusRef.current === 'ringing') {
                 setTimeout(() => {
-                    call.answer(myVideo.current?.srcObject);
+                    call.answer(localStreamRef.current);
                     setCurrentCall(call);
                     call.on('stream', (remStream) => {
                         setCallStatus('connected');
                         setTimeout(() => {
                             if (remoteVideo.current) {
                                 remoteVideo.current.srcObject = remStream;
-                                remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play();
+                                remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
                             }
                         }, 300);
                     });

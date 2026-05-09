@@ -1,7 +1,8 @@
 import { createContext, useEffect, useState } from "react";
 import { auth, googleProvider, db, rtdb } from "../firebase";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import { doc, setDoc, serverTimestamp as firestoreTimestamp } from "firebase/firestore"; // 🔥 serverTimestamp import kiya
+// 🔥 FIX: getDoc aur updateDoc import kiya
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp as firestoreTimestamp } from "firebase/firestore";
 import { ref, set, serverTimestamp as rtdbTimestamp } from "firebase/database";
 
 export const AuthContext = createContext();
@@ -23,15 +24,25 @@ export const AuthProvider = ({ children }) => {
             const result = await signInWithPopup(auth, googleProvider);
             const u = result.user;
 
-            // 🔥 FIX: Login ke waqt hi basic data save kar lo taaki app crash na ho
-            await setDoc(doc(db, "users", u.uid), {
-                uid: u.uid,
-                email: u.email,
-                name: u.displayName, // 👈 'displayName' ko 'name' mein save kiya taaki Sidebar mein dikhe
-                photo: u.photoURL,   // 👈 Gmail ki asli photo
-                photoURL: u.photoURL,
-                lastLogin: firestoreTimestamp() // 👈 'new Date()' ki jagah Firebase ka timestamp use karna behtar hai
-            }, { merge: true });
+            const userRef = doc(db, "users", u.uid);
+            const userSnap = await getDoc(userRef);
+
+            if (!userSnap.exists()) {
+                // 🆕 NAYA USER: Sirf pehli baar database mein entry banegi
+                await setDoc(userRef, {
+                    uid: u.uid,
+                    email: u.email,
+                    name: u.displayName, // First time fallback (Onboarding ise change kar dega)
+                    photo: u.photoURL,
+                    photoURL: u.photoURL,
+                    lastLogin: firestoreTimestamp()
+                });
+            } else {
+                // 🔄 PURANA USER: Naam bilkul touch nahi hoga, sirf login time change hoga
+                await updateDoc(userRef, {
+                    lastLogin: firestoreTimestamp()
+                });
+            }
 
         } catch (error) {
             console.error("Login Error:", error);
