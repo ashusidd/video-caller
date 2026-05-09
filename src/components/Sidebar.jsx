@@ -5,11 +5,11 @@ import { ref, onValue } from 'firebase/database'; // RTDB methods
 import { rtdb } from '../firebase'; // RTDB instance
 
 // --- ALAG COMPONENT: Har friend ka status check karne ke liye ---
-function FriendItem({ friend, isSelected, onClick }) {
+function FriendItem({ friend, isSelected, onClick, unreadCount }) { // 🔥 ADDED: unreadCount prop
     const [status, setStatus] = useState('offline');
 
     useEffect(() => {
-        // 🔥 FIX 1: Safety Check - Agar dost ki ID hi nahi hai toh wapas jao
+        // 櫨 FIX 1: Safety Check - Agar dost ki ID hi nahi hai toh wapas jao
         if (!friend?.uid) return;
 
         // RTDB se is friend ka status path pakdo
@@ -26,13 +26,13 @@ function FriendItem({ friend, isSelected, onClick }) {
         return () => unsub();
     }, [friend?.uid]);
 
-    // 🔥 FIX 2: UI mein har jagah '?.' (Optional Chaining) lagaya taaki crash na ho
+    // 櫨 FIX 2: UI mein har jagah '?.' (Optional Chaining) lagaya taaki crash na ho
     const displayName = friend?.name || "Unknown User";
     const displayUsername = friend?.username || "unknown";
 
     return (
         <div onClick={onClick}
-            className={`flex items-center gap-4 px-4 py-3 rounded-2xl cursor-pointer transition-all mb-1 
+            className={`flex items-center gap-4 px-4 py-3 rounded-2xl cursor-pointer transition-all mb-1 relative
             ${isSelected ? 'bg-[#2a3942] shadow-md' : 'hover:bg-[#202c33]'}`}>
 
             <div className="relative shrink-0">
@@ -61,12 +61,20 @@ function FriendItem({ friend, isSelected, onClick }) {
                     </span>
                 </div>
             </div>
+
+            {/* 🔥 ADDED: Missed Call Badge */}
+            {unreadCount > 0 && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 bg-blue-600 rounded-full shadow-lg shadow-blue-500/20 animate-pulse">
+                    <span className="text-[10px] font-black text-white">{unreadCount}</span>
+                </div>
+            )}
         </div>
     );
 }
 
 export default function Sidebar() {
-    const { friends, setSelectedFriend, callStatus } = useContext(VideoContext);
+    // 🔥 ADDED: Context se unreadCounts nikaala
+    const { friends, setSelectedFriend, callStatus, unreadCounts } = useContext(VideoContext);
     const navigate = useNavigate();
     const location = useLocation();
     const [searchQuery, setSearchQuery] = useState('');
@@ -79,7 +87,7 @@ export default function Sidebar() {
         navigate(`/chat/${friend.uid}`);
     };
 
-    // 🔥 FIX 3: THE CRASH KILLER - Search filter ko safe banaya
+    // 櫨 FIX 3: THE CRASH KILLER - Search filter ko safe banaya
     const filteredFriends = friends?.filter(friend => {
         // Agar friend null hai toh hata do
         if (!friend) return false;
@@ -133,6 +141,7 @@ export default function Sidebar() {
                                     friend={friend}
                                     isSelected={location.pathname === `/chat/${friend?.uid}`}
                                     onClick={() => handleFriendClick(friend)}
+                                    unreadCount={unreadCounts?.[friend?.uid] || 0} // 🔥 ADDED: Pass unread count
                                 />
                             ))
                         ) : (

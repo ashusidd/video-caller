@@ -1,7 +1,8 @@
-import { createContext, useState, useEffect, useRef, useContext } from 'react';
+import { createContext, useState, useEffect, useRef, useContext, useMemo } from 'react'; // 🔥 ADDED: useMemo
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+// 🔥 ADDED: writeBatch imported
+import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -13,6 +14,10 @@ export const VideoProvider = ({ children }) => {
     const [userData, setUserData] = useState(null);
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
+
+    // 🔥 ADDED: Naye states badges aur logs ke liye
+    const [unreadCounts, setUnreadCounts] = useState({});
+    const [callLogs, setCallLogs] = useState([]);
 
     const [isLoading, setIsLoading] = useState(true);
     const [requestCount, setRequestCount] = useState(0);
@@ -62,11 +67,67 @@ export const VideoProvider = ({ children }) => {
                 receiverName: remoteName,
                 type: type,
                 status: status,
+                viewed: false, // 🔥 ADDED: Missed call track karne ke liye
                 timestamp: serverTimestamp(),
                 expiresAt: expiryDate,
                 users: [user.uid, remoteId]
             });
         } catch (e) { console.error("Log save error:", e); }
+    };
+
+    // 🔥 ADDED: Click karne par badge hatane ka logic
+    const markCallsAsViewed = async (friendId) => {
+        if (!user || !friendId) return;
+        try {
+            const q = query(
+                collection(db, "calls"),
+                where("receiverId", "==", user.uid),
+                where("callerId", "==", friendId),
+                where("status", "==", "missed"),
+                where("viewed", "==", false)
+            );
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+                const batch = writeBatch(db);
+                snapshot.docs.forEach((d) => batch.update(doc(db, "calls", d.id), { viewed: true }));
+                await batch.commit();
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    // 🔥 ADDED: Real-time Call Logs Sunna (For Sorting & Badges)
+    useEffect(() => {
+        if (!user) return;
+        const q = query(collection(db, "calls"), where("users", "array-contains", user.uid));
+        const unsubLogs = onSnapshot(q, (snapshot) => {
+            const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            const sortedLogs = logs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+            setCallLogs(sortedLogs);
+
+            const counts = {};
+            logs.forEach(log => {
+                if (log.receiverId === user.uid && log.status === 'missed' && !log.viewed) {
+                    counts[log.callerId] = (counts[log.callerId] || 0) + 1;
+                }
+            });
+            setUnreadCounts(counts);
+        });
+        return () => unsubLogs();
+    }, [user]);
+
+    // 🔥 ADDED: Master Sorting Logic (Latest Calls Top pe aayengi)
+    const sortedFriends = useMemo(() => {
+        return [...friends].sort((a, b) => {
+            const lastCallA = callLogs.find(log => log.users?.includes(a.uid))?.timestamp?.toMillis() || 0;
+            const lastCallB = callLogs.find(log => log.users?.includes(b.uid))?.timestamp?.toMillis() || 0;
+            return lastCallB - lastCallA;
+        });
+    }, [friends, callLogs]);
+
+    // 🔥 ADDED: Wrapper function taaki badge click karte hi clear ho
+    const handleSetSelectedFriend = (friend) => {
+        setSelectedFriend(friend);
+        if (friend?.uid) markCallsAsViewed(friend.uid);
     };
 
     useEffect(() => {
@@ -122,11 +183,9 @@ export const VideoProvider = ({ children }) => {
             // 🔥 THE FIX: The Speed Cut Bug Resolved
             if (snapshot.empty && callStatusRef.current === 'ringing') {
                 if (activeSignalId.current) {
-                    // Agar signal ban chuka tha aur ab gayab hai, matlab saamne wale ne Decline kar diya!
                     console.log("Receiver declined rapidly! Cutting call...");
                     endCall();
                 } else if (!isConnectingRef.current) {
-                    // Failsafe timeout
                     endCall();
                 }
             }
@@ -244,7 +303,6 @@ export const VideoProvider = ({ children }) => {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
                 receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
-            // 🔥 Active ID yahan set hoti hai, jiske baad Decline hone par instant cut hoga
             activeSignalId.current = signalRef.id;
 
             const receiverDoc = await getDoc(doc(db, "users", targetUid));
@@ -538,7 +596,8 @@ export const VideoProvider = ({ children }) => {
 
     return (
         <VideoContext.Provider value={{
-            userData, isLoading, friends, selectedFriend, setSelectedFriend,
+            userData, isLoading, friends: sortedFriends, selectedFriend, setSelectedFriend: handleSetSelectedFriend, // 🔥 ADDED: sortedFriends aur naya setSelectedFriend
+            unreadCounts, // 🔥 ADDED: unreadCounts Sidebar ke liye
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
