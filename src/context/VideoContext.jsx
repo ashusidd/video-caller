@@ -14,7 +14,6 @@ export const VideoProvider = ({ children }) => {
     const [friends, setFriends] = useState([]);
     const [selectedFriend, setSelectedFriend] = useState(null);
 
-    // 📊 Naye States Badges aur Logs ke liye
     const [unreadCounts, setUnreadCounts] = useState({});
     const [callLogs, setCallLogs] = useState([]);
 
@@ -52,7 +51,6 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { currentCallRef.current = currentCall; }, [currentCall]);
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
-    // 📝 Save Call History
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
         try {
@@ -74,90 +72,61 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
-    // 🧹 Badge hatane ka function
+    // 🔥 THE FIX: Memory Filtering to avoid Firebase Index Error
     const markCallsAsViewed = async (friendId) => {
         if (!user || !friendId) return;
         try {
+            // 1. Firebase se sirf basic condition par data mango
             const q = query(
                 collection(db, "calls"),
-                where("receiverId", "==", user.uid),
-                where("callerId", "==", friendId),
-                where("status", "==", "missed"),
-                where("viewed", "==", false)
+                where("receiverId", "==", user.uid)
             );
+
             const snapshot = await getDocs(q);
-            if (!snapshot.empty) {
-                const batch = writeBatch(db);
-                snapshot.docs.forEach((d) => batch.update(doc(db, "calls", d.id), { viewed: true }));
-                await batch.commit();
-            }
-        } catch (e) { console.error(e); }
-    };
+            const batch = writeBatch(db);
+            let hasUpdates = false;
 
-    // 🔄 🔥 THE ULTIMATE FIX: Purani aur Nayi dono calls pakadne ka logic
-    useEffect(() => {
-        if (!user) return;
-
-        // Hum do alag queries chala rahe hain taaki 'users' array ka error na aaye
-        const qIncoming = query(collection(db, "calls"), where("receiverId", "==", user.uid));
-        const qOutgoing = query(collection(db, "calls"), where("callerId", "==", user.uid));
-
-        let incomingLogs = [];
-        let outgoingLogs = [];
-
-        const updateLogs = () => {
-            // Dono lists ko jod diya
-            const allLogs = [...incomingLogs, ...outgoingLogs];
-
-            // Duplicate calls hatane ke liye (safety feature)
-            const uniqueLogs = Array.from(new Map(allLogs.map(item => [item.id, item])).values());
-
-            // Naye time ke hisaab se sort kiya
-            const sortedLogs = uniqueLogs.sort((a, b) => {
-                const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
-                const tB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
-                return tB - tA;
+            // 2. Baaki ki saari checking code (Memory) mein karo
+            snapshot.docs.forEach((d) => {
+                const data = d.data();
+                // Check karo ki call usi dost ki ho, missed ho, aur abhi tak padhi na gayi ho
+                if (data.callerId === friendId && data.status === 'missed' && data.viewed === false) {
+                    batch.update(doc(db, "calls", d.id), { viewed: true });
+                    hasUpdates = true;
+                }
             });
 
+            // 3. Agar koi missed call mili toh ek hi baar mein update kar do
+            if (hasUpdates) {
+                await batch.commit();
+            }
+        } catch (e) { console.error("Badge clear error:", e); }
+    };
+
+    useEffect(() => {
+        if (!user) return;
+        const q = query(collection(db, "calls"), where("users", "array-contains", user.uid));
+        const unsubLogs = onSnapshot(q, (snapshot) => {
+            const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            const sortedLogs = logs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
             setCallLogs(sortedLogs);
 
-            // Badges count calculate karna
             const counts = {};
-            sortedLogs.forEach(log => {
+            logs.forEach(log => {
                 if (log.receiverId === user.uid && log.status === 'missed' && !log.viewed) {
                     counts[log.callerId] = (counts[log.callerId] || 0) + 1;
                 }
             });
             setUnreadCounts(counts);
-        };
-
-        const unsubIn = onSnapshot(qIncoming, (snap) => {
-            incomingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
         });
-
-        const unsubOut = onSnapshot(qOutgoing, (snap) => {
-            outgoingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
-        });
-
-        return () => { unsubIn(); unsubOut(); };
+        return () => unsubLogs();
     }, [user]);
 
-    // 🔝 🔥 THE BULLETPROOF SORTING: Safe checking for old logs
     const sortedFriends = useMemo(() => {
-        if (!friends || friends.length === 0) return [];
-        if (!callLogs || callLogs.length === 0) return friends; // Agar logs na ho toh original list dikhao
-
         return [...friends].sort((a, b) => {
-            // Hum directly callerId aur receiverId check kar rahe hain, 'users' array nahi!
-            const callA = callLogs.find(log => log.callerId === a.uid || log.receiverId === a.uid);
-            const callB = callLogs.find(log => log.callerId === b.uid || log.receiverId === b.uid);
-
-            const timeA = callA?.timestamp?.toMillis ? callA.timestamp.toMillis() : 0;
-            const timeB = callB?.timestamp?.toMillis ? callB.timestamp.toMillis() : 0;
-
-            return timeB - timeA;
+            const lastCallA = callLogs.find(log => log.users?.includes(a.uid))?.timestamp?.toMillis() || 0;
+            const lastCallB = callLogs.find(log => log.users?.includes(b.uid))?.timestamp?.toMillis() || 0;
+            return lastCallB - lastCallA;
         });
     }, [friends, callLogs]);
 
@@ -166,7 +135,6 @@ export const VideoProvider = ({ children }) => {
         if (friend?.uid) markCallsAsViewed(friend.uid);
     };
 
-    // --- BAAKI SAB KUCH TUMHARA EXACT ORIGINAL CODE HAI ---
     useEffect(() => {
         if (authloading) return;
 
@@ -632,9 +600,8 @@ export const VideoProvider = ({ children }) => {
 
     return (
         <VideoContext.Provider value={{
-            // 🔥 YAHAN dhyan dena: friends ki jagah sortedFriends pass kiya hai!
             userData, isLoading, friends: sortedFriends, selectedFriend, setSelectedFriend: handleSetSelectedFriend,
-            unreadCounts, // 🔥 Badge show karne ke liye
+            unreadCounts,
             startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
