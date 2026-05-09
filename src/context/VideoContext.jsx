@@ -1,7 +1,11 @@
 import { createContext, useState, useEffect, useRef, useContext, useMemo } from 'react';
 import { Peer } from 'peerjs';
 import { db, rtdb } from '../firebase';
-import { doc, onSnapshot, collection, query, where, getDocs, addDoc, deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
+import {
+    doc, onSnapshot, collection, query, where, getDocs, addDoc,
+    deleteDoc, serverTimestamp, getDoc, setDoc, updateDoc,
+    arrayUnion, arrayRemove, writeBatch
+} from 'firebase/firestore';
 import { ref, onValue, set, onDisconnect, serverTimestamp as rtdbTimestamp } from 'firebase/database';
 import { AuthContext } from './AuthContext';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -52,66 +56,73 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
     // =======================================================
-    // 1. SMART NOTIFICATION REQUESTER & FCM GENERATOR 🔥
+    // 1. SMART NOTIFICATION & FCM (100% Guaranteed Token) 🔥
     // =======================================================
     const saveFCMToken = async () => {
+        if (!user) return;
         try {
             const messaging = getMessaging();
-            const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
+            // 🔥 Yahan par explicit SW registration add kiya hai taaki token kabhi fail na ho
+            const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+            console.log("Service Worker Successfully Registered for FCM!");
+
+            const currentToken = await getToken(messaging, {
+                vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg',
+                serviceWorkerRegistration: registration
+            });
+
             if (currentToken) {
                 await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
-                console.log("✅ FCM Token successfully saved in Database!");
+                console.log("✅ FCM Token Generated and Saved!");
             }
         } catch (err) {
-            console.error("🚨 FCM Token Generation Failed:", err);
+            console.error("🚨 FCM Token Error:", err);
+        }
+    };
+
+    const requestNotificationPermission = () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') saveFCMToken();
+            });
         }
     };
 
     useEffect(() => {
         if (!user) return;
-
-        const requestNotifOnFirstClick = () => {
-            if ('Notification' in window && Notification.permission === 'default') {
-                Notification.requestPermission().then((permission) => {
-                    if (permission === 'granted') saveFCMToken();
-                }).catch(err => console.error("Notif Request Error:", err));
-            }
-            // Ek baar maangne ke baad ye background listener hata do
-            document.removeEventListener('click', requestNotifOnFirstClick);
-        };
-
-        // Agar purana user hai (permission pehle se hai) toh direct token save/update karo
         if ('Notification' in window && Notification.permission === 'granted') {
             saveFCMToken();
         }
-        // Agar naya user hai, toh screen pe pehli baar tap karne ka wait karo!
-        else if ('Notification' in window && Notification.permission === 'default') {
-            document.addEventListener('click', requestNotifOnFirstClick);
-        }
-
-        return () => document.removeEventListener('click', requestNotifOnFirstClick);
     }, [user]);
 
     // =======================================================
-    // 2. Call Logs & Badges Logic
+    // 2. HARDWARE DETECTOR (Camera/Mic Block Fix) 🛡️
+    // =======================================================
+    const getMediaStreamSafe = async (requestVideo) => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: requestVideo, audio: true });
+            return { stream, videoEnabled: requestVideo };
+        } catch (err) {
+            console.warn("🚨 Hardware Error:", err);
+            alert("🚨 Permission Denied!\n\nUpar URL bar mein Lock (🔒) icon par click karo, Camera aur Mic ko 'Allow' karo, aur page refresh karo.");
+            return null;
+        }
+    };
+
+    // =======================================================
+    // 3. Call Logs, Badges & Sorting (Rule-Safe)
     // =======================================================
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
         try {
             const expiryDate = new Date();
             expiryDate.setHours(expiryDate.getHours() + 24);
-
             await addDoc(collection(db, "calls"), {
-                callerId: user.uid,
-                callerName: userData?.name || "User",
-                receiverId: remoteId,
-                receiverName: remoteName,
-                type: type,
-                status: status,
-                viewed: false,
-                timestamp: serverTimestamp(),
-                expiresAt: expiryDate,
-                users: [user.uid, remoteId]
+                callerId: user.uid, callerName: userData?.name || "User",
+                receiverId: remoteId, receiverName: remoteName,
+                type: type, status: status, viewed: false,
+                timestamp: serverTimestamp(), expiresAt: expiryDate,
+                users: [user.uid, remoteId] // Firestore rule ke liye zaroori
             });
         } catch (e) { console.error("Log save error:", e); }
     };
@@ -119,14 +130,15 @@ export const VideoProvider = ({ children }) => {
     const markCallsAsViewed = async (friendId) => {
         if (!user || !friendId) return;
         try {
-            const q = query(collection(db, "calls"), where("receiverId", "==", user.uid));
+            // 🔥 NAYA: Security rules match karne ke liye 'users' array ka filter
+            const q = query(collection(db, "calls"), where("users", "array-contains", user.uid));
             const snapshot = await getDocs(q);
             const batch = writeBatch(db);
             let hasUpdates = false;
 
             snapshot.docs.forEach((d) => {
                 const data = d.data();
-                if (data.callerId === friendId && data.status === 'missed' && !data.viewed) {
+                if (data.callerId === friendId && data.receiverId === user.uid && data.status === 'missed' && !data.viewed) {
                     batch.update(doc(db, "calls", d.id), { viewed: true });
                     hasUpdates = true;
                 }
@@ -138,20 +150,18 @@ export const VideoProvider = ({ children }) => {
 
     useEffect(() => {
         if (!user) return;
-        const qIncoming = query(collection(db, "calls"), where("receiverId", "==", user.uid));
-        const qOutgoing = query(collection(db, "calls"), where("callerId", "==", user.uid));
+        // Logs sirf 'users' array query se nikalenge taaki "Insufficient permissions" na aaye
+        const qCalls = query(collection(db, "calls"), where("users", "array-contains", user.uid));
 
-        let incomingLogs = [];
-        let outgoingLogs = [];
+        const unsubCalls = onSnapshot(qCalls, (snap) => {
+            const allLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        const updateLogs = () => {
-            const allLogs = [...incomingLogs, ...outgoingLogs];
-            const uniqueLogs = Array.from(new Map(allLogs.map(item => [item.id, item])).values());
-            const sortedLogs = uniqueLogs.sort((a, b) => {
+            const sortedLogs = allLogs.sort((a, b) => {
                 const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
                 const tB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
                 return tB - tA;
             });
+
             setCallLogs(sortedLogs);
 
             const counts = {};
@@ -161,18 +171,9 @@ export const VideoProvider = ({ children }) => {
                 }
             });
             setUnreadCounts(counts);
-        };
-
-        const unsubIn = onSnapshot(qIncoming, (snap) => {
-            incomingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
-        });
-        const unsubOut = onSnapshot(qOutgoing, (snap) => {
-            outgoingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
         });
 
-        return () => { unsubIn(); unsubOut(); };
+        return () => { unsubCalls(); };
     }, [user]);
 
     const sortedFriends = useMemo(() => {
@@ -191,10 +192,12 @@ export const VideoProvider = ({ children }) => {
     const handleSetSelectedFriend = (friend) => {
         setSelectedFriend(friend);
         if (friend?.uid) markCallsAsViewed(friend.uid);
+        // 🔥 Trigger notification popup here
+        requestNotificationPermission();
     };
 
     // =======================================================
-    // 3. User & Auth Setup
+    // 4. User & Auth Setup
     // =======================================================
     useEffect(() => {
         if (authloading) return;
@@ -215,7 +218,7 @@ export const VideoProvider = ({ children }) => {
     }, [user, authloading]);
 
     // =======================================================
-    // 4. Firebase Signals (Ring Listener)
+    // 5. Firebase Signals (Phantom Call Fix) 👻
     // =======================================================
     useEffect(() => {
         if (!user || isLoading) return;
@@ -225,10 +228,14 @@ export const VideoProvider = ({ children }) => {
             const currentStatus = callStatusRef.current;
             if (!snapshot.empty) {
                 const firstDoc = snapshot.docs[0];
-                activeSignalId.current = firstDoc.id;
+                const signalData = firstDoc.data();
 
-                if (currentStatus === 'idle') {
-                    const signalData = firstDoc.data();
+                // 🔥 Time check taaki purani call fir se ring na kare
+                const now = Date.now();
+                const signalTime = signalData.timestamp?.toMillis ? signalData.timestamp.toMillis() : now;
+
+                if (currentStatus === 'idle' && (now - signalTime < 30000)) {
+                    activeSignalId.current = firstDoc.id;
                     setCallerInfo({ uid: signalData.callerId, name: signalData.callerName, photo: signalData.callerPhoto, callType: signalData.type });
                     setCallStatus('receiving');
                 }
@@ -243,9 +250,7 @@ export const VideoProvider = ({ children }) => {
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
             if (snapshot.empty && callStatusRef.current === 'ringing') {
-                if (activeSignalId.current) {
-                    endCall();
-                }
+                if (activeSignalId.current) endCall();
             }
         });
 
@@ -325,7 +330,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // =======================================================
-    // 5. 📞 CALLING ENGINE (Fixed Permission Clashes)
+    // 6. 📞 CALLING ENGINE
     // =======================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -344,28 +349,27 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
-            // 🔥 THE FIX: Yahan se Notification Request Hata di hai. Sirf Camera/Mic mangenge.
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            } catch (mediaErr) {
-                alert("Please allow Camera and Microphone access to make calls!");
+            requestNotificationPermission();
+
+            // 🔥 Hardware check
+            const mediaResult = await getMediaStreamSafe(isVideo);
+            if (!mediaResult) {
                 isConnectingRef.current = false; setCallStatus('idle'); return;
             }
-            localStreamRef.current = stream;
 
+            localStreamRef.current = mediaResult.stream;
             setTimeout(() => {
                 if (myVideo.current) {
-                    myVideo.current.srcObject = stream;
+                    myVideo.current.srcObject = mediaResult.stream;
                     myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
                 }
             }, 300);
 
-            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: mediaResult.videoEnabled });
 
             const signalRef = await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
-                receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
+                receiverId: targetUid, type: mediaResult.videoEnabled ? 'video' : 'audio', timestamp: serverTimestamp()
             });
             activeSignalId.current = signalRef.id;
 
@@ -373,16 +377,16 @@ export const VideoProvider = ({ children }) => {
             if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
                 fetch('/api/notify', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: isVideo ? 'video' : 'audio', fromId: user.uid })
+                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: mediaResult.videoEnabled ? 'video' : 'audio', fromId: user.uid })
                 }).catch(e => console.error(e));
             }
 
-            const outCall = peerInstance.current.call(targetUid, stream, {
-                metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
+            const outCall = peerInstance.current.call(targetUid, mediaResult.stream, {
+                metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: mediaResult.videoEnabled ? 'video' : 'audio' }
             });
 
             setCurrentCall(outCall);
-            setIsCameraOff(!isVideo);
+            setIsCameraOff(!mediaResult.videoEnabled);
 
             setTimeout(() => { isConnectingRef.current = false; }, 3000);
             setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 40000);
@@ -398,9 +402,7 @@ export const VideoProvider = ({ children }) => {
             });
 
             outCall.on('close', () => {
-                if (currentCallRef.current === outCall && callStatusRef.current === 'connected') {
-                    endCall();
-                }
+                if (currentCallRef.current === outCall && callStatusRef.current === 'connected') endCall();
             });
 
         } catch (err) {
@@ -419,28 +421,24 @@ export const VideoProvider = ({ children }) => {
                 localStreamRef.current = null;
             }
 
-            // 🔥 THE FIX: Yahan se bhi Notification Request Hata di. Sirf Media aayega ab.
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            } catch (mediaErr) {
-                alert("You need to allow Camera/Mic to answer the call!");
+            const mediaResult = await getMediaStreamSafe(isVideo);
+            if (!mediaResult) {
                 endCall(); return;
             }
-            localStreamRef.current = stream;
+            localStreamRef.current = mediaResult.stream;
 
             setCallStatus('connected');
-            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: mediaResult.videoEnabled });
 
             setTimeout(() => {
                 if (myVideo.current) {
-                    myVideo.current.srcObject = stream;
+                    myVideo.current.srcObject = mediaResult.stream;
                     myVideo.current.onloadedmetadata = () => myVideo.current.play().catch(e => console.log(e));
                 }
             }, 300);
 
             if (incomingCall) {
-                incomingCall.answer(stream);
+                incomingCall.answer(mediaResult.stream);
                 setCurrentCall(incomingCall);
                 incomingCall.on('stream', (remStream) => {
                     setTimeout(() => {
@@ -455,8 +453,8 @@ export const VideoProvider = ({ children }) => {
                 });
             } else {
                 const makeHandshake = () => {
-                    const handshakeCall = peerInstance.current.call(callerInfo.uid, stream, {
-                        metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
+                    const handshakeCall = peerInstance.current.call(callerInfo.uid, mediaResult.stream, {
+                        metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: mediaResult.videoEnabled ? 'video' : 'audio' }
                     });
                     setCurrentCall(handshakeCall);
                     handshakeCall.on('stream', (remStream) => {
@@ -490,9 +488,14 @@ export const VideoProvider = ({ children }) => {
 
         const prevStatus = callStatusRef.current;
         callStatusRef.current = 'idle';
+        setCallStatus('idle');
 
-        const signalToDelete = activeSignalId.current;
-        activeSignalId.current = null;
+        // 🔥 PHANTOM FIX: Signal delete instantly
+        if (activeSignalId.current) {
+            const signalToDelete = activeSignalId.current;
+            activeSignalId.current = null;
+            await deleteDoc(doc(db, "signals", signalToDelete)).catch(e => console.log("Delete error:", e));
+        }
 
         if (prevStatus !== 'idle') {
             const isMissed = prevStatus === 'ringing' || prevStatus === 'receiving';
@@ -524,14 +527,10 @@ export const VideoProvider = ({ children }) => {
 
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
-            if (signalToDelete) {
-                await deleteDoc(doc(db, "signals", signalToDelete)).catch(e => console.log("Delete error:", e));
-            }
 
             const qIncoming = query(collection(db, "signals"), where("receiverId", "==", user.uid));
             const snapIncoming = await getDocs(qIncoming);
-            snapIncoming.forEach(async (d) => { if (d.id !== activeSignalId.current) await deleteDoc(doc(db, "signals", d.id)); });
-
+            snapIncoming.forEach(async (d) => { await deleteDoc(doc(db, "signals", d.id)); });
         } catch (error) { console.error("Signal cleanup failed:", error); }
 
         if (currentCallRef.current) currentCallRef.current.close();
@@ -554,7 +553,6 @@ export const VideoProvider = ({ children }) => {
             remoteVideo.current.srcObject = null;
         }
 
-        setCallStatus('idle');
         setCurrentCall(null); setIncomingCall(null); setCallerInfo(null);
         setIsMuted(false); setIsCameraOff(false);
 
@@ -562,7 +560,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // =======================================================
-    // 6. PeerJS Connection & Other Utils
+    // 7. PeerJS Connection & Database Setup
     // =======================================================
     useEffect(() => {
         if (!user) return;
@@ -579,10 +577,7 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
-
-        peer.on('error', (err) => {
-            console.warn("🚨 PeerJS Safe Error (Ignore if Ringing):", err.type);
-        });
+        peer.on('error', (err) => { console.warn("🚨 PeerJS Safe Error:", err.type); });
 
         peer.on('call', async (call) => {
             if (callStatusRef.current === 'connected' || callStatusRef.current === 'ringing') {
@@ -637,6 +632,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     const searchUsers = async (searchTerm) => {
+        requestNotificationPermission(); // 🔥 Trigger on search
         const term = searchTerm.toLowerCase().replace(/\s+/g, '');
         if (!term) return [];
         const snapshot = await getDocs(query(collection(db, "users"), where("username", ">=", term), where("username", "<=", term + '\uf8ff')));
@@ -647,6 +643,7 @@ export const VideoProvider = ({ children }) => {
 
     const acceptFriendRequest = async (requestId, senderId) => {
         if (!user?.uid || !senderId) return;
+        requestNotificationPermission(); // 🔥 Trigger on accept request
         await updateDoc(doc(db, "users", user.uid), { friends: arrayUnion(senderId) });
         await deleteDoc(doc(db, "friendRequests", requestId));
         await updateDoc(doc(db, "users", senderId), { friends: arrayUnion(user.uid) });
