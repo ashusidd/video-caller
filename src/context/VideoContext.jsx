@@ -51,6 +51,50 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { currentCallRef.current = currentCall; }, [currentCall]);
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
+    // =======================================================
+    // 1. SMART NOTIFICATION REQUESTER & FCM GENERATOR 🔥
+    // =======================================================
+    const saveFCMToken = async () => {
+        try {
+            const messaging = getMessaging();
+            const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
+            if (currentToken) {
+                await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
+                console.log("✅ FCM Token successfully saved in Database!");
+            }
+        } catch (err) {
+            console.error("🚨 FCM Token Generation Failed:", err);
+        }
+    };
+
+    useEffect(() => {
+        if (!user) return;
+
+        const requestNotifOnFirstClick = () => {
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().then((permission) => {
+                    if (permission === 'granted') saveFCMToken();
+                }).catch(err => console.error("Notif Request Error:", err));
+            }
+            // Ek baar maangne ke baad ye background listener hata do
+            document.removeEventListener('click', requestNotifOnFirstClick);
+        };
+
+        // Agar purana user hai (permission pehle se hai) toh direct token save/update karo
+        if ('Notification' in window && Notification.permission === 'granted') {
+            saveFCMToken();
+        }
+        // Agar naya user hai, toh screen pe pehli baar tap karne ka wait karo!
+        else if ('Notification' in window && Notification.permission === 'default') {
+            document.addEventListener('click', requestNotifOnFirstClick);
+        }
+
+        return () => document.removeEventListener('click', requestNotifOnFirstClick);
+    }, [user]);
+
+    // =======================================================
+    // 2. Call Logs & Badges Logic
+    // =======================================================
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
         try {
@@ -72,61 +116,75 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
-    // 🔥 THE FIX: Memory Filtering to avoid Firebase Index Error
-
     const markCallsAsViewed = async (friendId) => {
         if (!user || !friendId) return;
         try {
-            // Sirf ek simple query maar rahe hain taaki Firebase block na kare
-            const q = query(
-                collection(db, "calls"),
-                where("receiverId", "==", user.uid)
-            );
-
+            const q = query(collection(db, "calls"), where("receiverId", "==", user.uid));
             const snapshot = await getDocs(q);
             const batch = writeBatch(db);
             let hasUpdates = false;
 
             snapshot.docs.forEach((d) => {
                 const data = d.data();
-                // 🔥 THE MAGIC FIX: !data.viewed (Ye false aur missing dono ko pakad lega!)
                 if (data.callerId === friendId && data.status === 'missed' && !data.viewed) {
                     batch.update(doc(db, "calls", d.id), { viewed: true });
                     hasUpdates = true;
                 }
             });
 
-            if (hasUpdates) {
-                await batch.commit();
-                console.log("Badge Cleared Successfully!");
-            }
+            if (hasUpdates) await batch.commit();
         } catch (e) { console.error("Badge clear error:", e); }
     };
 
     useEffect(() => {
         if (!user) return;
-        const q = query(collection(db, "calls"), where("users", "array-contains", user.uid));
-        const unsubLogs = onSnapshot(q, (snapshot) => {
-            const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            const sortedLogs = logs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+        const qIncoming = query(collection(db, "calls"), where("receiverId", "==", user.uid));
+        const qOutgoing = query(collection(db, "calls"), where("callerId", "==", user.uid));
+
+        let incomingLogs = [];
+        let outgoingLogs = [];
+
+        const updateLogs = () => {
+            const allLogs = [...incomingLogs, ...outgoingLogs];
+            const uniqueLogs = Array.from(new Map(allLogs.map(item => [item.id, item])).values());
+            const sortedLogs = uniqueLogs.sort((a, b) => {
+                const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                const tB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                return tB - tA;
+            });
             setCallLogs(sortedLogs);
 
             const counts = {};
-            logs.forEach(log => {
+            sortedLogs.forEach(log => {
                 if (log.receiverId === user.uid && log.status === 'missed' && !log.viewed) {
                     counts[log.callerId] = (counts[log.callerId] || 0) + 1;
                 }
             });
             setUnreadCounts(counts);
+        };
+
+        const unsubIn = onSnapshot(qIncoming, (snap) => {
+            incomingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            updateLogs();
         });
-        return () => unsubLogs();
+        const unsubOut = onSnapshot(qOutgoing, (snap) => {
+            outgoingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            updateLogs();
+        });
+
+        return () => { unsubIn(); unsubOut(); };
     }, [user]);
 
     const sortedFriends = useMemo(() => {
+        if (!friends || friends.length === 0) return [];
+        if (!callLogs || callLogs.length === 0) return friends;
+
         return [...friends].sort((a, b) => {
-            const lastCallA = callLogs.find(log => log.users?.includes(a.uid))?.timestamp?.toMillis() || 0;
-            const lastCallB = callLogs.find(log => log.users?.includes(b.uid))?.timestamp?.toMillis() || 0;
-            return lastCallB - lastCallA;
+            const callA = callLogs.find(log => log.callerId === a.uid || log.receiverId === a.uid);
+            const callB = callLogs.find(log => log.callerId === b.uid || log.receiverId === b.uid);
+            const timeA = callA?.timestamp?.toMillis ? callA.timestamp.toMillis() : 0;
+            const timeB = callB?.timestamp?.toMillis ? callB.timestamp.toMillis() : 0;
+            return timeB - timeA;
         });
     }, [friends, callLogs]);
 
@@ -135,18 +193,14 @@ export const VideoProvider = ({ children }) => {
         if (friend?.uid) markCallsAsViewed(friend.uid);
     };
 
+    // =======================================================
+    // 3. User & Auth Setup
+    // =======================================================
     useEffect(() => {
         if (authloading) return;
-
         if (!user) {
             setIsLoading(false); setUserData(null); setFriends([]); setSelectedFriend(null);
             return;
-        }
-
-        if ('Notification' in window) {
-            Notification.requestPermission().then((permission) => {
-                if (permission === 'granted') saveFCMToken();
-            });
         }
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
@@ -160,6 +214,9 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubUser(); unsubRequests(); };
     }, [user, authloading]);
 
+    // =======================================================
+    // 4. Firebase Signals (Ring Listener)
+    // =======================================================
     useEffect(() => {
         if (!user || isLoading) return;
 
@@ -187,9 +244,6 @@ export const VideoProvider = ({ children }) => {
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
             if (snapshot.empty && callStatusRef.current === 'ringing') {
                 if (activeSignalId.current) {
-                    console.log("Receiver declined rapidly! Cutting call...");
-                    endCall();
-                } else if (!isConnectingRef.current) {
                     endCall();
                 }
             }
@@ -198,9 +252,10 @@ export const VideoProvider = ({ children }) => {
         return () => { unsubIncoming(); unsubOutgoing(); };
     }, [user, isLoading]);
 
+    // Audio & Sounds
     useEffect(() => {
         const playSound = (audio) => { audio.currentTime = 0; audio.play().catch(e => console.warn("Autoplay blocked:", e)); };
-        const stopAllSounds = () => { ringtoneAudio.current.pause(); ringtoneAudio.current.currentTime = 0; dialingAudio.current.pause(); dialingAudio.current.currentTime = 0; };
+        const stopAllSounds = () => { ringtoneAudio.current.pause(); dialingAudio.current.pause(); };
 
         if (callStatus === 'receiving') { stopAllSounds(); ringtoneAudio.current.loop = true; playSound(ringtoneAudio.current); }
         else if (callStatus === 'ringing') { stopAllSounds(); dialingAudio.current.loop = true; playSound(dialingAudio.current); }
@@ -222,16 +277,11 @@ export const VideoProvider = ({ children }) => {
 
     useEffect(() => {
         if (callStatus === 'idle') return;
-
         const handleUnload = () => {
             if (currentCallRef.current) currentCallRef.current.close();
             if (incomingCallRef.current) incomingCallRef.current.close();
-
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => track.stop());
-            }
+            if (localStreamRef.current) localStreamRef.current.getTracks().forEach(track => track.stop());
         };
-
         const handlePopState = () => {
             window.history.pushState(null, '', window.location.href);
             endCall();
@@ -274,6 +324,9 @@ export const VideoProvider = ({ children }) => {
         }
     };
 
+    // =======================================================
+    // 5. 📞 CALLING ENGINE (Fixed Permission Clashes)
+    // =======================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
             isConnectingRef.current = true;
@@ -291,7 +344,14 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
-            const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            // 🔥 THE FIX: Yahan se Notification Request Hata di hai. Sirf Camera/Mic mangenge.
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            } catch (mediaErr) {
+                alert("Please allow Camera and Microphone access to make calls!");
+                isConnectingRef.current = false; setCallStatus('idle'); return;
+            }
             localStreamRef.current = stream;
 
             setTimeout(() => {
@@ -325,7 +385,7 @@ export const VideoProvider = ({ children }) => {
             setIsCameraOff(!isVideo);
 
             setTimeout(() => { isConnectingRef.current = false; }, 3000);
-            setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 30000);
+            setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 40000);
 
             outCall.on('stream', (remStream) => {
                 setCallStatus('connected');
@@ -338,7 +398,7 @@ export const VideoProvider = ({ children }) => {
             });
 
             outCall.on('close', () => {
-                if (currentCallRef.current === outCall) {
+                if (currentCallRef.current === outCall && callStatusRef.current === 'connected') {
                     endCall();
                 }
             });
@@ -359,7 +419,14 @@ export const VideoProvider = ({ children }) => {
                 localStreamRef.current = null;
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            // 🔥 THE FIX: Yahan se bhi Notification Request Hata di. Sirf Media aayega ab.
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+            } catch (mediaErr) {
+                alert("You need to allow Camera/Mic to answer the call!");
+                endCall(); return;
+            }
             localStreamRef.current = stream;
 
             setCallStatus('connected');
@@ -457,7 +524,6 @@ export const VideoProvider = ({ children }) => {
 
         try {
             if (user?.uid) await set(ref(rtdb, `call_status/${user.uid}`), null);
-
             if (signalToDelete) {
                 await deleteDoc(doc(db, "signals", signalToDelete)).catch(e => console.log("Delete error:", e));
             }
@@ -472,9 +538,7 @@ export const VideoProvider = ({ children }) => {
         if (incomingCallRef.current) incomingCallRef.current.close();
 
         const killTracks = (stream) => {
-            if (stream && stream.getTracks) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+            if (stream && stream.getTracks) stream.getTracks().forEach(track => track.stop());
         };
 
         killTracks(localStreamRef.current);
@@ -497,6 +561,9 @@ export const VideoProvider = ({ children }) => {
         setTimeout(() => { isConnectingRef.current = false; }, 500);
     };
 
+    // =======================================================
+    // 6. PeerJS Connection & Other Utils
+    // =======================================================
     useEffect(() => {
         if (!user) return;
 
@@ -512,6 +579,10 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
+
+        peer.on('error', (err) => {
+            console.warn("🚨 PeerJS Safe Error (Ignore if Ringing):", err.type);
+        });
 
         peer.on('call', async (call) => {
             if (callStatusRef.current === 'connected' || callStatusRef.current === 'ringing') {
@@ -588,14 +659,6 @@ export const VideoProvider = ({ children }) => {
         await updateDoc(doc(db, "users", user.uid), { friends: arrayRemove(friendId) });
         await updateDoc(doc(db, "users", friendId), { friends: arrayRemove(user.uid) });
         setSelectedFriend(null);
-    };
-
-    const saveFCMToken = async () => {
-        try {
-            const messaging = getMessaging();
-            const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
-            if (currentToken) await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
-        } catch (err) { }
     };
 
     return (
