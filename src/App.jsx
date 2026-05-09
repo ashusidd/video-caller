@@ -1,4 +1,4 @@
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 // Contexts
@@ -14,7 +14,7 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Notification Tap & Deep Linking logic
+// 📞 CALL HANDLER: Dashboard Deep-Linking Fix
 // ==============================================================
 function CallHandler() {
   const { callStatus, isLoading: videoLoading, friends, setSelectedFriend } = useContext(VideoContext);
@@ -22,36 +22,55 @@ function CallHandler() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const redirectDone = useRef(false);
 
   useEffect(() => {
-    // Jab tak sab load na ho jaye, intezar karo
-    if (authLoading || videoLoading || !user || friends.length === 0) return;
+    // 1. Basic Check: Agar auth load ho raha hai toh ruk jao
+    if (authLoading || !user || redirectDone.current) return;
 
     const params = new URLSearchParams(location.search);
-    const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    // 🎯 FIX: Missed call ya Notification tap handle karna
     if (callerId) {
-      console.log("Detecting callerId from notification:", callerId);
+      // 2. 🔥 SMART POLLING: Friends load hone tak wait karega
+      const checkAndRedirect = () => {
+        if (friends.length > 0) {
+          const targetFriend = friends.find(f => f.uid === callerId);
 
-      // 1. Pehle friends list mein wo user dhoondo
-      const targetFriend = friends.find(f => f.uid === callerId);
+          if (targetFriend) {
+            console.log("Friend Found! Redirecting to dashboard...");
+            setSelectedFriend(targetFriend);
+            redirectDone.current = true;
 
-      if (targetFriend) {
-        // 2. State update karo taaki dashboard uski chat dikhaye
-        setSelectedFriend(targetFriend);
-
-        // 3. Agar call status idle hai (missed call case), toh redirect karo
-        if (callStatus === 'idle') {
-          navigate(`/chat/${callerId}`, { replace: true });
-        } else {
-          // Agar call chal rahi hai, toh sirf URL saaf karo, CallInterface khud dikhega
-          navigate(location.pathname, { replace: true });
+            // Agar call cut chuki hai, toh chat page pe bhej do
+            if (callStatus === 'idle') {
+              navigate(`/chat/${callerId}`, { replace: true });
+            } else {
+              // Agar call zinda hai, toh URL saaf karo (CallInterface khud dikhega)
+              navigate(location.pathname, { replace: true });
+            }
+          }
         }
-      }
+      };
+
+      // Turant check karo
+      checkAndRedirect();
+
+      // Agar list late load ho rahi hai toh 3 seconds tak har 500ms pe check karega
+      const interval = setInterval(() => {
+        if (redirectDone.current) {
+          clearInterval(interval);
+        } else {
+          checkAndRedirect();
+        }
+      }, 500);
+
+      // 3 second baad stop kar do taaki loop na chale
+      setTimeout(() => clearInterval(interval), 3000);
+
+      return () => clearInterval(interval);
     }
-  }, [location.search, callStatus, videoLoading, authLoading, user, friends, navigate, setSelectedFriend]);
+  }, [location.search, friends, authLoading, user, callStatus, navigate, setSelectedFriend]);
 
   return null;
 }
@@ -89,7 +108,6 @@ function App() {
     <Router>
       <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
-        {/* Call UI humesha top pe */}
         {callStatus !== 'idle' && <CallInterface />}
 
         <div className="flex flex-col h-full overflow-hidden">
