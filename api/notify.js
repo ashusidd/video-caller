@@ -15,7 +15,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // 🔥 FIX: Yahan 'fromId' ko destructure karke payload mein add kiya
+    // 🔥 FIX: 'fromId' ko yahan extract karna zaroori hai
     const { token, fromName, type, fromId } = req.body;
 
     const payload = {
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
             fromName: fromName || "Someone",
             type: type || "incoming",
             title: "📹 V-CALL HD",
-            fromId: fromId || "" // 🔥 YE MISSING THA! Iske bina SW crash ho raha tha.
+            fromId: fromId || "" // 🔥 YE LINE MISSING THI TUMHARI FILE MEIN!
         },
         token: token
     };

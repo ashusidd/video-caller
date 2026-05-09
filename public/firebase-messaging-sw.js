@@ -29,7 +29,7 @@ messaging.onBackgroundMessage((payload) => {
     if (type === 'missed') {
         notifTitle = "⚠️ Missed call";
         notifBody = `You missed a call from ${callerName}`;
-        targetUrl = `/chat/${callerId}`;
+        targetUrl = `/?missedCall=${callerId}`;
     } else if (type === 'friend_request') {
         notifTitle = "👤 New Friend Request";
         notifBody = `${callerName} sent you a friend request!`;

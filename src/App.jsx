@@ -25,33 +25,41 @@ function CallHandler() {
   const redirectDone = useRef(false);
 
   useEffect(() => {
-    // 1. Agar auth ya video load ho raha hai toh ruk jao
+    // Agar auth ya video load ho raha hai toh ruk jao
     if (authLoading || videoLoading || !user || redirectDone.current) return;
 
     const params = new URLSearchParams(location.search);
     const callerId = params.get('callerId');
+    const missedCallId = params.get('missedCall'); // 🔥 Missed Call Notification Parameter
 
-    if (callerId) {
-      console.log("Found callerId in URL:", callerId);
-
-      // 2. Friends list check karo
+    // 1. 🎯 Agar Missed Call notification se aaye hain
+    if (missedCallId) {
       if (friends && friends.length > 0) {
-        const targetFriend = friends.find(f => f.uid === callerId);
-
+        const targetFriend = friends.find(f => f.uid === missedCallId);
         if (targetFriend) {
-          console.log("Match Found! Forcing Dashboard Selection...");
-
-          // 🔥 FIX: Pehle state update karo, fir navigate karo
           setSelectedFriend(targetFriend);
           redirectDone.current = true;
 
-          // 1 second ka delay taaki state settle ho jaye
+          setTimeout(() => {
+            // 🔥 BINA "replace: true" ke navigate kiya hai!
+            // Isse pehle '/' (Home) history mein save hoga, fir '/chat' khulega.
+            navigate(`/chat/${missedCallId}`);
+          }, 100);
+        }
+      }
+    }
+    // 2. 🎯 Agar Incoming Call notification se aaye hain
+    else if (callerId) {
+      if (friends && friends.length > 0) {
+        const targetFriend = friends.find(f => f.uid === callerId);
+        if (targetFriend) {
+          setSelectedFriend(targetFriend);
+          redirectDone.current = true;
+
           setTimeout(() => {
             if (callStatus === 'idle') {
-              // Exact chat route par bhejo
               navigate(`/chat/${callerId}`, { replace: true });
             } else {
-              // Call chal rahi hai toh URL clean karo
               navigate('/', { replace: true });
             }
           }, 100);
@@ -63,6 +71,9 @@ function CallHandler() {
   return null;
 }
 
+// ==============================================================
+// 🖥️ MAIN APP COMPONENT
+// ==============================================================
 function App() {
   const { user, loading: authloading } = useContext(AuthContext);
   const { userData, callStatus, isLoading: videoLoading } = useContext(VideoContext);

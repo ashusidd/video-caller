@@ -1,11 +1,11 @@
 import { useState, useContext, useEffect } from 'react';
 import { VideoContext } from '../context/VideoContext';
-// 🔥 FIX 1: getDoc aur doc import kiya notification ke liye
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 
 export default function AddFriend() {
-    const { searchUsers, userData } = useContext(VideoContext);
+    // 🔥 NAYA: Humne context se 'friends' ko bhi nikaal liya
+    const { searchUsers, userData, friends } = useContext(VideoContext);
 
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
@@ -38,7 +38,6 @@ export default function AddFriend() {
 
     const sendRequest = async (targetUser) => {
         try {
-            // Check: Khud ko request toh nahi bhej rahe?
             if (targetUser.uid === userData.uid) {
                 alert("Bhai, khud ko friend request nahi bhej sakte! 😂");
                 return;
@@ -54,7 +53,7 @@ export default function AddFriend() {
                 timestamp: serverTimestamp()
             });
 
-            // 🔥 NAYA CODE: Notification Ping Bhejna
+            // Notification Ping Bhejna
             try {
                 const receiverDoc = await getDoc(doc(db, "users", targetUser.uid));
                 if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
@@ -64,7 +63,7 @@ export default function AddFriend() {
                         body: JSON.stringify({
                             token: receiverDoc.data().fcmToken,
                             fromName: userData?.name,
-                            type: 'friend_request', // Background service worker isey pehchan lega
+                            type: 'friend_request',
                             fromId: userData.uid
                         })
                     }).catch(e => console.error("Notification API Error:", e));
@@ -75,7 +74,7 @@ export default function AddFriend() {
 
             alert(`Friend request sent to ${targetUser.name}! 🚀`);
             setQuery('');
-            setResults([]); // Request bhejne ke baad search list khali kar do
+            setResults([]);
         } catch (err) {
             console.error("Failed to send request:", err);
             alert(`Error: ${err.message}`);
@@ -104,39 +103,58 @@ export default function AddFriend() {
             {/* Results Display */}
             <div className="mt-4 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
                 {query.length >= 2 && results.length > 0 ? (
-                    results.map(u => (
-                        <div
-                            key={u.uid}
-                            className="flex items-center justify-between p-3 bg-zinc-900 rounded-2xl border border-white/5 hover:border-blue-600/50 transition-all group"
-                        >
-                            <div className="flex items-center gap-3">
-                                <img
-                                    src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+                    results.map(u => {
+                        // 🔥 THE FIX: Check karo ki kya banda pehle se friend list mein hai
+                        // .some() array mein check karta hai, agar mila toh true return karega
+                        const isAlreadyFriend = friends.some(f => f.uid === u.uid);
 
-                                    className="w-8 h-8 rounded-full object-cover border border-white/10"
-                                    alt={u.name || "User"}
+                        // Check karo ki kya search result user khud toh nahi hai
+                        const isSelf = u.uid === userData?.uid;
 
-                                    onError={(e) => {
-                                        e.target.src = `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
-                                    }}
-                                />
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">
-                                        {u.name}
-                                    </span>
-                                    <span className="text-[8px] text-zinc-500 font-bold">
-                                        @{u.username?.toLowerCase()}
-                                    </span>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => sendRequest(u)}
-                                className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
+                        return (
+                            <div
+                                key={u.uid}
+                                className="flex items-center justify-between p-3 bg-zinc-900 rounded-2xl border border-white/5 hover:border-blue-600/50 transition-all group"
                             >
-                                Request
-                            </button>
-                        </div>
-                    ))
+                                <div className="flex items-center gap-3">
+                                    <img
+                                        src={u.photo || u.photoURL || `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`}
+                                        className="w-8 h-8 rounded-full object-cover border border-white/10"
+                                        alt={u.name || "User"}
+                                        onError={(e) => {
+                                            e.target.src = `https://ui-avatars.com/api/?name=${u.name || 'U'}&background=random&color=fff&bold=true&length=1&uppercase=true`;
+                                        }}
+                                    />
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-black uppercase italic tracking-tighter text-white">
+                                            {u.name}
+                                        </span>
+                                        <span className="text-[8px] text-zinc-500 font-bold">
+                                            @{u.username?.toLowerCase()}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* 🔥 CONDITIONAL BUTTON RENDER */}
+                                {isSelf ? (
+                                    <span className="text-[9px] font-black text-zinc-500 uppercase px-3 py-1.5 tracking-widest">
+                                        You
+                                    </span>
+                                ) : isAlreadyFriend ? (
+                                    <span className="text-[9px] font-black text-green-500 uppercase bg-green-500/10 px-3 py-1.5 rounded-xl border border-green-500/20">
+                                        Friends
+                                    </span>
+                                ) : (
+                                    <button
+                                        onClick={() => sendRequest(u)}
+                                        className="text-[9px] font-black bg-blue-600 text-white px-3 py-1.5 rounded-xl uppercase transition-transform active:scale-90 hover:bg-blue-500"
+                                    >
+                                        Request
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })
                 ) : query.length >= 2 && !searching ? (
                     /* User Not Found Logic */
                     <div className="p-4 bg-red-600/5 border border-red-600/10 rounded-2xl text-center animate-in fade-in duration-300">
