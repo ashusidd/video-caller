@@ -14,11 +14,10 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Notification Actions Handle Karega
+// 📞 CALL HANDLER: Decline aur Missed calls handle karega
 // ==============================================================
 function CallHandler() {
-  // 🔥 FIX: endCall add kiya aur useNavigate import kiya
-  const { acceptCall, endCall, incomingCall, callStatus, isLoading } = useContext(VideoContext);
+  const { endCall, callStatus, isLoading } = useContext(VideoContext);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -28,25 +27,18 @@ function CallHandler() {
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    // 1. ✅ ACCEPT CALL LOGIC
-    if (action === 'accept' && incomingCall) {
-      console.log("🚀 Notification Accepted: Connecting...");
-      acceptCall();
-      window.history.replaceState({}, document.title, "/");
-    }
-
-    // 2. ❌ DECLINE CALL LOGIC
+    // ❌ DECLINE CALL LOGIC
     if (action === 'decline') {
       console.log("❌ Notification Declined: Ending call...");
-      endCall(); // Decline dabane par app open hoke turant phone kaat dega
+      endCall();
       window.history.replaceState({}, document.title, "/");
     }
 
-    // 3. ⚠️ MISSED CALL REDIRECT LOGIC
-    // Agar call aa rahi thi, par user ne na accept dabaya na decline, 
-    // aur 1.5 seconds baad status 'idle' hai (matlab call cut chuki hai)
-    if (isIncoming === 'true' && callerId && !isLoading && action !== 'accept' && action !== 'decline') {
+    // ⚠️ MISSED CALL REDIRECT LOGIC
+    // Agar URL incoming hai, aur user ne decline nahi kiya (shayad late accept kiya ya miss ho gaya)
+    if (isIncoming === 'true' && callerId && !isLoading && action !== 'decline') {
       const timer = setTimeout(() => {
+        // Agar 1.5 seconds ke baad app idle state mein hai (call connect nahi hui)
         if (callStatus === 'idle') {
           console.log("Call was missed or cut! Redirecting to chat...");
           navigate(`/chat/${callerId}`, { replace: true });
@@ -57,7 +49,7 @@ function CallHandler() {
       return () => clearTimeout(timer);
     }
 
-  }, [location, incomingCall, acceptCall, endCall, callStatus, isLoading, navigate]);
+  }, [location, endCall, callStatus, isLoading, navigate]);
 
   return null;
 }
@@ -94,19 +86,13 @@ function App() {
   // 🛡️ CONDITIONAL RENDERING (No Redirect = No Blink)
   // ==============================================================
 
-  // 1. Agar login nahi hai toh seedha Auth Page
   if (!user) return <Auth />;
-
-  // 2. Agar login hai par profile setup nahi hai toh seedha Onboarding
   if (user && !userData?.username) return <Onboarding />;
 
-  // 3. Sab sahi hai toh Router aur Main App render karo
   return (
     <Router>
       <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
-
-        {/* Call UI humesha top pe */}
         {callStatus !== 'idle' && <CallInterface />}
 
         <div className="flex flex-col h-full overflow-hidden">

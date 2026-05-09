@@ -29,6 +29,10 @@ export const VideoProvider = ({ children }) => {
 
     const activeSignalId = useRef(null);
 
+    // 🔥 NEW REFS: Ghost call ko pehchanne ke liye
+    const currentCallRef = useRef(null);
+    const incomingCallRef = useRef(null);
+
     const [isMuted, setIsMuted] = useState(false);
     const [isCameraOff, setIsCameraOff] = useState(false);
     const [callTimer, setCallTimer] = useState(0);
@@ -43,6 +47,8 @@ export const VideoProvider = ({ children }) => {
     const prevCallStatus = useRef('idle');
 
     useEffect(() => { callStatusRef.current = callStatus; }, [callStatus]);
+    useEffect(() => { currentCallRef.current = currentCall; }, [currentCall]);
+    useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
@@ -64,14 +70,18 @@ export const VideoProvider = ({ children }) => {
         } catch (e) { console.error("Log save error:", e); }
     };
 
+    // 🔥 FIX 1: Notification ka "Accept" ab yahan safely Firebase data aane ke baad chalega
     useEffect(() => {
         const urlParams = new URLSearchParams(window.location.search);
-        const autoAccept = urlParams.get('autoAccept');
+        const autoAccept = urlParams.get('autoAccept') === 'true' || urlParams.get('callAction') === 'accept';
 
-        if (autoAccept === 'true' && callStatus === 'receiving') {
+        if (autoAccept && callStatus === 'receiving') {
             setTimeout(() => {
                 acceptCall();
-                window.history.replaceState(null, '', window.location.pathname);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('autoAccept');
+                url.searchParams.delete('callAction');
+                window.history.replaceState(null, '', url.pathname + url.search);
             }, 500);
         }
     }, [callStatus]);
@@ -109,7 +119,6 @@ export const VideoProvider = ({ children }) => {
             const currentStatus = callStatusRef.current;
             if (!snapshot.empty) {
                 const firstDoc = snapshot.docs[0];
-
                 activeSignalId.current = firstDoc.id;
 
                 if (currentStatus === 'idle') {
@@ -161,8 +170,8 @@ export const VideoProvider = ({ children }) => {
         if (callStatus === 'idle') return;
 
         const handleUnload = () => {
-            if (currentCall) currentCall.close();
-            if (incomingCall) incomingCall.close();
+            if (currentCallRef.current) currentCallRef.current.close();
+            if (incomingCallRef.current) incomingCallRef.current.close();
 
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -182,7 +191,7 @@ export const VideoProvider = ({ children }) => {
             window.removeEventListener('beforeunload', handleUnload);
             window.removeEventListener('popstate', handlePopState);
         };
-    }, [callStatus, currentCall, incomingCall]);
+    }, [callStatus]);
 
     const toggleMic = () => {
         if (localStreamRef.current) {
@@ -254,23 +263,17 @@ export const VideoProvider = ({ children }) => {
                 }).catch(e => console.error(e));
             }
 
-            // 🔥 FIX: Photo ko metadata mein bhej diya! Ab profile pic override hokar null nahi hogi.
-            const call = peerInstance.current.call(targetUid, stream, {
-                metadata: {
-                    uid: user.uid,
-                    name: userData?.name,
-                    photo: userData?.photo || "",
-                    callType: isVideo ? 'video' : 'audio'
-                }
+            const outCall = peerInstance.current.call(targetUid, stream, {
+                metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
             });
 
-            setCurrentCall(call);
+            setCurrentCall(outCall);
             setIsCameraOff(!isVideo);
 
             setTimeout(() => { isConnectingRef.current = false; }, 3000);
             setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 30000);
 
-            call.on('stream', (remStream) => {
+            outCall.on('stream', (remStream) => {
                 setCallStatus('connected');
                 setTimeout(() => {
                     if (remoteVideo.current) {
@@ -279,7 +282,15 @@ export const VideoProvider = ({ children }) => {
                     }
                 }, 300);
             });
-            call.on('close', () => endCall());
+
+            // 🔥 THE GHOST KILLER FIX
+            // Agar pichli call fail ho jaye, toh wo handshake wali nayi call ko na kaate!
+            outCall.on('close', () => {
+                if (currentCallRef.current === outCall) {
+                    endCall();
+                }
+            });
+
         } catch (err) {
             console.error("❌ START CALL ERROR:", err);
             isConnectingRef.current = false; setCallStatus('idle');
@@ -320,9 +331,34 @@ export const VideoProvider = ({ children }) => {
                         }
                     }, 300);
                 });
-                incomingCall.on('close', () => endCall());
+                incomingCall.on('close', () => {
+                    if (currentCallRef.current === incomingCall) endCall();
+                });
             } else {
-                console.log("Fast accept mode triggered! Waiting for PeerJS connection...");
+                const makeHandshake = () => {
+                    const handshakeCall = peerInstance.current.call(callerInfo.uid, stream, {
+                        metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
+                    });
+                    setCurrentCall(handshakeCall);
+                    handshakeCall.on('stream', (remStream) => {
+                        setTimeout(() => {
+                            if (remoteVideo.current) {
+                                remoteVideo.current.srcObject = remStream;
+                                remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
+                            }
+                        }, 300);
+                    });
+                    // 🔥 Ghost killer protection for Handshake too
+                    handshakeCall.on('close', () => {
+                        if (currentCallRef.current === handshakeCall) endCall();
+                    });
+                };
+
+                if (peerInstance.current && peerInstance.current.open) {
+                    makeHandshake();
+                } else if (peerInstance.current) {
+                    peerInstance.current.on('open', makeHandshake);
+                }
             }
             setTimeout(() => { isConnectingRef.current = false; }, 2000);
         } catch (err) {
@@ -362,8 +398,8 @@ export const VideoProvider = ({ children }) => {
 
         } catch (error) { console.error("Signal cleanup failed:", error); }
 
-        if (currentCall) currentCall.close();
-        if (incomingCall) incomingCall.close();
+        if (currentCallRef.current) currentCallRef.current.close();
+        if (incomingCallRef.current) incomingCallRef.current.close();
 
         const killTracks = (stream) => {
             if (stream && stream.getTracks) {
@@ -408,10 +444,12 @@ export const VideoProvider = ({ children }) => {
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
 
         peer.on('call', async (call) => {
-            if (callStatusRef.current === 'connected') {
+            // 🔥 The Answer Fix: Handshake receive karte waqt current call update kar raha hai
+            if (callStatusRef.current === 'connected' || callStatusRef.current === 'ringing') {
                 call.answer(localStreamRef.current);
                 setCurrentCall(call);
                 call.on('stream', (remStream) => {
+                    setCallStatus('connected');
                     setTimeout(() => {
                         if (remoteVideo.current) {
                             remoteVideo.current.srcObject = remStream;
@@ -419,30 +457,14 @@ export const VideoProvider = ({ children }) => {
                         }
                     }, 300);
                 });
-                call.on('close', () => endCall());
+                call.on('close', () => {
+                    if (currentCallRef.current === call) endCall();
+                });
                 return;
             }
 
-            if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'ringing' && callStatusRef.current !== 'receiving') {
+            if (callStatusRef.current !== 'idle' && callStatusRef.current !== 'receiving') {
                 call.answer(); setTimeout(() => call.close(), 500); return;
-            }
-
-            if (callStatusRef.current === 'ringing') {
-                setTimeout(() => {
-                    call.answer(localStreamRef.current);
-                    setCurrentCall(call);
-                    call.on('stream', (remStream) => {
-                        setCallStatus('connected');
-                        setTimeout(() => {
-                            if (remoteVideo.current) {
-                                remoteVideo.current.srcObject = remStream;
-                                remoteVideo.current.onloadedmetadata = () => remoteVideo.current.play().catch(e => console.log(e));
-                            }
-                        }, 300);
-                    });
-                    call.on('close', () => endCall());
-                }, 300);
-                return;
             }
 
             setCallerInfo(call.metadata);
@@ -456,14 +478,10 @@ export const VideoProvider = ({ children }) => {
                 if (myFriendIds.length > 0) {
                     try {
                         const friendsPromises = myFriendIds.map(async (id) => {
-                            const friendDocRef = doc(db, "users", id);
-                            const friendDoc = await getDoc(friendDocRef);
-                            if (!friendDoc.exists()) return null;
-                            return { uid: friendDoc.id, ...friendDoc.data() };
+                            const friendDoc = await getDoc(doc(db, "users", id));
+                            return friendDoc.exists() ? { uid: friendDoc.id, ...friendDoc.data() } : null;
                         });
-                        const rawFriendsData = await Promise.all(friendsPromises);
-                        const cleanFriendsList = rawFriendsData.filter(friend => friend !== null);
-                        setFriends(cleanFriendsList);
+                        setFriends((await Promise.all(friendsPromises)).filter(friend => friend !== null));
                     } catch (error) { console.error("Friends fetch error:", error); }
                 } else setFriends([]);
             }
