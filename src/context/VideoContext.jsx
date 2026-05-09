@@ -52,7 +52,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
     // =======================================================
-    // 1. SMART NOTIFICATION REQUESTER & FCM GENERATOR 🔥
+    // 1. SMART NOTIFICATION REQUESTER (Mobile + PC Fixed) 🔥
     // =======================================================
     const saveFCMToken = async () => {
         try {
@@ -60,10 +60,10 @@ export const VideoProvider = ({ children }) => {
             const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
             if (currentToken) {
                 await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
-                console.log("✅ FCM Token successfully saved in Database!");
+                console.log("✅ FCM Token Generated!");
             }
         } catch (err) {
-            console.error("🚨 FCM Token Generation Failed:", err);
+            console.error("🚨 FCM Token Error:", err);
         }
     };
 
@@ -74,26 +74,65 @@ export const VideoProvider = ({ children }) => {
             if ('Notification' in window && Notification.permission === 'default') {
                 Notification.requestPermission().then((permission) => {
                     if (permission === 'granted') saveFCMToken();
-                }).catch(err => console.error("Notif Request Error:", err));
+                }).catch(err => console.error("Notif Error:", err));
             }
-            // Ek baar maangne ke baad ye background listener hata do
-            document.removeEventListener('click', requestNotifOnFirstClick);
         };
 
-        // Agar purana user hai (permission pehle se hai) toh direct token save/update karo
         if ('Notification' in window && Notification.permission === 'granted') {
             saveFCMToken();
+        } else if ('Notification' in window && Notification.permission === 'default') {
+            // Mobile (touch) aur PC (click) dono ko detect karega
+            const events = ['click', 'touchstart', 'keydown'];
+            const trigger = () => {
+                requestNotifOnFirstClick();
+                events.forEach(e => document.removeEventListener(e, trigger));
+            };
+            events.forEach(e => document.addEventListener(e, trigger));
         }
-        // Agar naya user hai, toh screen pe pehli baar tap karne ka wait karo!
-        else if ('Notification' in window && Notification.permission === 'default') {
-            document.addEventListener('click', requestNotifOnFirstClick);
-        }
-
-        return () => document.removeEventListener('click', requestNotifOnFirstClick);
     }, [user]);
 
     // =======================================================
-    // 2. Call Logs & Badges Logic
+    // 2. HARDWARE SMART DETECTOR (Call Cut Fix) 🛡️📹
+    // =======================================================
+    const getMediaStreamSafe = async (requestVideo) => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert("🚨 Your browser doesn't support calling. Please use Chrome/Safari on a secure (HTTPS) connection.");
+            return null;
+        }
+        try {
+            // First attempt: Camera + Mic
+            const stream = await navigator.mediaDevices.getUserMedia({ video: requestVideo, audio: true });
+            return { stream, videoEnabled: requestVideo };
+        } catch (err) {
+            console.warn("🚨 Media Hardware Error:", err);
+
+            if (err.name === 'NotFoundError' || err.message.includes('Requested device not found')) {
+                // Agar camera nahi hai (e.g. PC), toh Voice Call pe shift kar do
+                try {
+                    const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+                    alert("⚠️ Camera not found! Starting a Voice-Only call.");
+                    return { stream: audioStream, videoEnabled: false };
+                } catch (audioErr) {
+                    alert("🚨 Microphone is also missing or blocked! Please check your device.");
+                    return null;
+                }
+            } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                // Browser ne block kar diya hai permanently
+                alert("🚨 CAMERA/MIC BLOCKED!\n\nPlease click the 'Lock' 🔒 icon in the URL bar above, allow Camera and Microphone, and refresh the page.");
+                return null;
+            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                // Camera kisi aur app (Zoom, Camera app) mein on hai
+                alert("🚨 Hardware Error! Another app is currently using your Camera/Mic. Please close it and try again.");
+                return null;
+            } else {
+                alert(`🚨 Hardware access failed: ${err.message}`);
+                return null;
+            }
+        }
+    };
+
+    // =======================================================
+    // 3. Call Logs, Badges & Friends List
     // =======================================================
     const saveCallLog = async (remoteId, remoteName, type, status) => {
         if (!user) return;
@@ -102,16 +141,10 @@ export const VideoProvider = ({ children }) => {
             expiryDate.setHours(expiryDate.getHours() + 24);
 
             await addDoc(collection(db, "calls"), {
-                callerId: user.uid,
-                callerName: userData?.name || "User",
-                receiverId: remoteId,
-                receiverName: remoteName,
-                type: type,
-                status: status,
-                viewed: false,
-                timestamp: serverTimestamp(),
-                expiresAt: expiryDate,
-                users: [user.uid, remoteId]
+                callerId: user.uid, callerName: userData?.name || "User",
+                receiverId: remoteId, receiverName: remoteName,
+                type: type, status: status, viewed: false,
+                timestamp: serverTimestamp(), expiresAt: expiryDate, users: [user.uid, remoteId]
             });
         } catch (e) { console.error("Log save error:", e); }
     };
@@ -141,8 +174,7 @@ export const VideoProvider = ({ children }) => {
         const qIncoming = query(collection(db, "calls"), where("receiverId", "==", user.uid));
         const qOutgoing = query(collection(db, "calls"), where("callerId", "==", user.uid));
 
-        let incomingLogs = [];
-        let outgoingLogs = [];
+        let incomingLogs = [], outgoingLogs = [];
 
         const updateLogs = () => {
             const allLogs = [...incomingLogs, ...outgoingLogs];
@@ -163,14 +195,8 @@ export const VideoProvider = ({ children }) => {
             setUnreadCounts(counts);
         };
 
-        const unsubIn = onSnapshot(qIncoming, (snap) => {
-            incomingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
-        });
-        const unsubOut = onSnapshot(qOutgoing, (snap) => {
-            outgoingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            updateLogs();
-        });
+        const unsubIn = onSnapshot(qIncoming, (snap) => { incomingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() })); updateLogs(); });
+        const unsubOut = onSnapshot(qOutgoing, (snap) => { outgoingLogs = snap.docs.map(d => ({ id: d.id, ...d.data() })); updateLogs(); });
 
         return () => { unsubIn(); unsubOut(); };
     }, [user]);
@@ -194,14 +220,11 @@ export const VideoProvider = ({ children }) => {
     };
 
     // =======================================================
-    // 3. User & Auth Setup
+    // 4. User & Auth Setup
     // =======================================================
     useEffect(() => {
         if (authloading) return;
-        if (!user) {
-            setIsLoading(false); setUserData(null); setFriends([]); setSelectedFriend(null);
-            return;
-        }
+        if (!user) { setIsLoading(false); setUserData(null); setFriends([]); setSelectedFriend(null); return; }
 
         const unsubUser = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
             setUserData(snapshot.exists() ? snapshot.data() : null);
@@ -215,7 +238,7 @@ export const VideoProvider = ({ children }) => {
     }, [user, authloading]);
 
     // =======================================================
-    // 4. Firebase Signals (Ring Listener)
+    // 5. Firebase Signals & PeerJS
     // =======================================================
     useEffect(() => {
         if (!user || isLoading) return;
@@ -243,18 +266,15 @@ export const VideoProvider = ({ children }) => {
         const qOutgoing = query(collection(db, "signals"), where("callerId", "==", user.uid));
         const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
             if (snapshot.empty && callStatusRef.current === 'ringing') {
-                if (activeSignalId.current) {
-                    endCall();
-                }
+                if (activeSignalId.current) endCall();
             }
         });
 
         return () => { unsubIncoming(); unsubOutgoing(); };
     }, [user, isLoading]);
 
-    // Audio & Sounds
     useEffect(() => {
-        const playSound = (audio) => { audio.currentTime = 0; audio.play().catch(e => console.warn("Autoplay blocked:", e)); };
+        const playSound = (audio) => { audio.currentTime = 0; audio.play().catch(() => { }); };
         const stopAllSounds = () => { ringtoneAudio.current.pause(); dialingAudio.current.pause(); };
 
         if (callStatus === 'receiving') { stopAllSounds(); ringtoneAudio.current.loop = true; playSound(ringtoneAudio.current); }
@@ -282,10 +302,7 @@ export const VideoProvider = ({ children }) => {
             if (incomingCallRef.current) incomingCallRef.current.close();
             if (localStreamRef.current) localStreamRef.current.getTracks().forEach(track => track.stop());
         };
-        const handlePopState = () => {
-            window.history.pushState(null, '', window.location.href);
-            endCall();
-        };
+        const handlePopState = () => { window.history.pushState(null, '', window.location.href); endCall(); };
 
         window.addEventListener('beforeunload', handleUnload);
         window.history.pushState(null, '', window.location.href);
@@ -325,7 +342,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // =======================================================
-    // 5. 📞 CALLING ENGINE (Fixed Permission Clashes)
+    // 6. CALLING ENGINE (Fully Protected)
     // =======================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -344,14 +361,17 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
-            // 🔥 THE FIX: Yahan se Notification Request Hata di hai. Sirf Camera/Mic mangenge.
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            } catch (mediaErr) {
-                alert("Please allow Camera and Microphone access to make calls!");
-                isConnectingRef.current = false; setCallStatus('idle'); return;
+            // 🔥 SMART MEDIA REQUEST
+            const mediaResult = await getMediaStreamSafe(isVideo);
+            if (!mediaResult) {
+                // Agar block hai, toh yahin safely ruk jao. Call cut nahi "Cancel" hogi.
+                isConnectingRef.current = false;
+                setCallStatus('idle');
+                return;
             }
+
+            const stream = mediaResult.stream;
+            const finalIsVideo = mediaResult.videoEnabled; // In case it fell back to audio
             localStreamRef.current = stream;
 
             setTimeout(() => {
@@ -361,11 +381,11 @@ export const VideoProvider = ({ children }) => {
                 }
             }, 300);
 
-            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: finalIsVideo });
 
             const signalRef = await addDoc(collection(db, "signals"), {
                 callerId: user.uid, callerName: userData?.name || "User", callerPhoto: userData?.photo || "",
-                receiverId: targetUid, type: isVideo ? 'video' : 'audio', timestamp: serverTimestamp()
+                receiverId: targetUid, type: finalIsVideo ? 'video' : 'audio', timestamp: serverTimestamp()
             });
             activeSignalId.current = signalRef.id;
 
@@ -373,16 +393,16 @@ export const VideoProvider = ({ children }) => {
             if (receiverDoc.exists() && receiverDoc.data().fcmToken) {
                 fetch('/api/notify', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: isVideo ? 'video' : 'audio', fromId: user.uid })
+                    body: JSON.stringify({ token: receiverDoc.data().fcmToken, fromName: userData?.name, type: finalIsVideo ? 'video' : 'audio', fromId: user.uid })
                 }).catch(e => console.error(e));
             }
 
             const outCall = peerInstance.current.call(targetUid, stream, {
-                metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
+                metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: finalIsVideo ? 'video' : 'audio' }
             });
 
             setCurrentCall(outCall);
-            setIsCameraOff(!isVideo);
+            setIsCameraOff(!finalIsVideo);
 
             setTimeout(() => { isConnectingRef.current = false; }, 3000);
             setTimeout(() => { if (callStatusRef.current === 'ringing') endCall(); }, 40000);
@@ -419,18 +439,19 @@ export const VideoProvider = ({ children }) => {
                 localStreamRef.current = null;
             }
 
-            // 🔥 THE FIX: Yahan se bhi Notification Request Hata di. Sirf Media aayega ab.
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
-            } catch (mediaErr) {
-                alert("You need to allow Camera/Mic to answer the call!");
-                endCall(); return;
+            // 🔥 SMART MEDIA REQUEST FOR RECEIVER
+            const mediaResult = await getMediaStreamSafe(isVideo);
+            if (!mediaResult) {
+                // Agar camera fail ho gaya toh Call End kar do
+                endCall();
+                return;
             }
+            const stream = mediaResult.stream;
+            const finalIsVideo = mediaResult.videoEnabled;
             localStreamRef.current = stream;
 
             setCallStatus('connected');
-            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: isVideo });
+            await set(ref(rtdb, `call_status/${user.uid}`), { videoEnabled: finalIsVideo });
 
             setTimeout(() => {
                 if (myVideo.current) {
@@ -456,7 +477,7 @@ export const VideoProvider = ({ children }) => {
             } else {
                 const makeHandshake = () => {
                     const handshakeCall = peerInstance.current.call(callerInfo.uid, stream, {
-                        metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: isVideo ? 'video' : 'audio' }
+                        metadata: { uid: user.uid, name: userData?.name, photo: userData?.photo || "", callType: finalIsVideo ? 'video' : 'audio' }
                     });
                     setCurrentCall(handshakeCall);
                     handshakeCall.on('stream', (remStream) => {
@@ -561,9 +582,6 @@ export const VideoProvider = ({ children }) => {
         setTimeout(() => { isConnectingRef.current = false; }, 500);
     };
 
-    // =======================================================
-    // 6. PeerJS Connection & Other Utils
-    // =======================================================
     useEffect(() => {
         if (!user) return;
 
@@ -579,10 +597,7 @@ export const VideoProvider = ({ children }) => {
         peerInstance.current = peer;
 
         peer.on('disconnected', () => { if (!peer.destroyed) peer.reconnect(); });
-
-        peer.on('error', (err) => {
-            console.warn("🚨 PeerJS Safe Error (Ignore if Ringing):", err.type);
-        });
+        peer.on('error', (err) => { console.warn("🚨 PeerJS Safe Error:", err.type); });
 
         peer.on('call', async (call) => {
             if (callStatusRef.current === 'connected' || callStatusRef.current === 'ringing') {
@@ -664,8 +679,7 @@ export const VideoProvider = ({ children }) => {
     return (
         <VideoContext.Provider value={{
             userData, isLoading, friends: sortedFriends, selectedFriend, setSelectedFriend: handleSetSelectedFriend,
-            unreadCounts,
-            startCall, acceptCall, endCall, requestCount,
+            unreadCounts, startCall, acceptCall, endCall, requestCount,
             myVideo, remoteVideo, callStatus, callerInfo,
             isMuted, isCameraOff, toggleMic, toggleCamera, callTimer,
             setupProfile, searchUsers, saveFCMToken,
