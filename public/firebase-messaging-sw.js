@@ -2,14 +2,21 @@
 
 messaging.onBackgroundMessage((payload) => {
     const isMissed = payload.data.type === 'missed';
-    const notificationTitle = isMissed ? "⚠️ Missed V-CALL" : "📞 Incoming V-CALL HD";
+    const isAudio = payload.data.type === 'audio';
 
+    // 🔥 NAYA FIX: Audio ya Video ke hisaab se Title set hoga
+    const notificationTitle = isMissed
+        ? `⚠️ Missed call from ${callerName}`
+        : `📞 ${callerName} is calling... (${isAudio ? 'Audio' : 'Video'})`;
 
     const callerId = payload.data.fromId || '';
     const callerName = payload.data.fromName || 'Someone';
 
     const notificationOptions = {
-        body: isMissed ? `You missed a call from ${callerName}` : `${callerName} is calling you...`,
+        // 🔥 NAYA FIX: Body text bhi dynamic ho gaya hai
+        body: isMissed
+            ? `You missed a call from ${callerName}`
+            : `${callerName} is calling you for a ${isAudio ? 'audio' : 'video'} call...`,
         icon: '/favicon.svg',
         tag: 'vcall-sync-tag',
         renotify: true,
@@ -20,7 +27,8 @@ messaging.onBackgroundMessage((payload) => {
             { action: 'decline', title: '❌ Decline' }
         ],
         data: {
-            url: isMissed ? '/' : `/?incomingCall=true&callerId=${callerId}&callerName=${callerName}&type=${payload.data.callType || 'video'}`
+            // 🔥 NAYA FIX: Agar missed call ki notification par click karega toh direct chat khulegi
+            url: isMissed ? `/chat/${callerId}` : `/?incomingCall=true&callerId=${callerId}&callerName=${callerName}&type=${payload.data.type || 'video'}`
         }
     };
 
@@ -32,10 +40,12 @@ self.addEventListener('notificationclick', function (event) {
 
     const baseUrl = 'https://v-call-hd.vercel.app';
     let targetUrl = baseUrl + (event.notification.data.url || '/');
+
+    // 🔥 NAYA FIX: URL me action pass kar rahe hain (Accept/Decline)
     if (event.action === 'accept') {
-        targetUrl += '&autoAccept=true';
+        targetUrl += '&callAction=accept';
     } else if (event.action === 'decline') {
-        return;
+        targetUrl += '&callAction=decline';
     }
 
     event.waitUntil(

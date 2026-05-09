@@ -1,5 +1,5 @@
 import { useContext, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 // Contexts
 import { AuthContext } from './context/AuthContext';
@@ -17,19 +17,47 @@ import CallInterface from './components/CallInterface';
 // 📞 CALL HANDLER: Notification Actions Handle Karega
 // ==============================================================
 function CallHandler() {
-  const { acceptCall, incomingCall } = useContext(VideoContext);
+  // 🔥 FIX: endCall add kiya aur useNavigate import kiya
+  const { acceptCall, endCall, incomingCall, callStatus, isLoading } = useContext(VideoContext);
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const action = params.get('callAction');
+    const isIncoming = params.get('incomingCall');
+    const callerId = params.get('callerId');
 
+    // 1. ✅ ACCEPT CALL LOGIC
     if (action === 'accept' && incomingCall) {
       console.log("🚀 Notification Accepted: Connecting...");
       acceptCall();
       window.history.replaceState({}, document.title, "/");
     }
-  }, [location, incomingCall, acceptCall]);
+
+    // 2. ❌ DECLINE CALL LOGIC
+    if (action === 'decline') {
+      console.log("❌ Notification Declined: Ending call...");
+      endCall(); // Decline dabane par app open hoke turant phone kaat dega
+      window.history.replaceState({}, document.title, "/");
+    }
+
+    // 3. ⚠️ MISSED CALL REDIRECT LOGIC
+    // Agar call aa rahi thi, par user ne na accept dabaya na decline, 
+    // aur 1.5 seconds baad status 'idle' hai (matlab call cut chuki hai)
+    if (isIncoming === 'true' && callerId && !isLoading && action !== 'accept' && action !== 'decline') {
+      const timer = setTimeout(() => {
+        if (callStatus === 'idle') {
+          console.log("Call was missed or cut! Redirecting to chat...");
+          navigate(`/chat/${callerId}`, { replace: true });
+          window.history.replaceState({}, document.title, `/chat/${callerId}`);
+        }
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
+
+  }, [location, incomingCall, acceptCall, endCall, callStatus, isLoading, navigate]);
 
   return null;
 }
