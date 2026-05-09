@@ -52,7 +52,7 @@ export const VideoProvider = ({ children }) => {
     useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
 
     // =======================================================
-    // 1. SMART NOTIFICATION REQUESTER (Mobile + PC Fixed) 🔥
+    // 1. SMART NOTIFICATION REQUESTER 🔥 (The Fix)
     // =======================================================
     const saveFCMToken = async () => {
         try {
@@ -60,35 +60,29 @@ export const VideoProvider = ({ children }) => {
             const currentToken = await getToken(messaging, { vapidKey: 'BEMKQLdVS5fsrlkPDABsQVGpaybLqi04I_rhbbsYWej5T7yXe7X01Xlo1B1x4anpImWemkdh2n-3dyrgfqt0Fdg' });
             if (currentToken) {
                 await setDoc(doc(db, "users", user.uid), { fcmToken: currentToken }, { merge: true });
-                console.log("✅ FCM Token Generated!");
+                console.log("✅ FCM Token Generated and Saved!");
             }
         } catch (err) {
             console.error("🚨 FCM Token Error:", err);
         }
     };
 
+    // Ek reusable function banaya hai jo har button click par check karega
+    const requestNotificationPermission = () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') saveFCMToken();
+            }).catch(err => console.error("Notif Error:", err));
+        }
+    };
+
     useEffect(() => {
         if (!user) return;
-
-        const requestNotifOnFirstClick = () => {
-            if ('Notification' in window && Notification.permission === 'default') {
-                Notification.requestPermission().then((permission) => {
-                    if (permission === 'granted') saveFCMToken();
-                }).catch(err => console.error("Notif Error:", err));
-            }
-        };
-
+        // Agar pehle se allow kar rakha hai, toh seedha token update kar do
         if ('Notification' in window && Notification.permission === 'granted') {
             saveFCMToken();
-        } else if ('Notification' in window && Notification.permission === 'default') {
-            // Mobile (touch) aur PC (click) dono ko detect karega
-            const events = ['click', 'touchstart', 'keydown'];
-            const trigger = () => {
-                requestNotifOnFirstClick();
-                events.forEach(e => document.removeEventListener(e, trigger));
-            };
-            events.forEach(e => document.addEventListener(e, trigger));
         }
+        // NOTE: Global document listener hata diya gaya hai taaki browser spam na samjhe
     }, [user]);
 
     // =======================================================
@@ -100,14 +94,12 @@ export const VideoProvider = ({ children }) => {
             return null;
         }
         try {
-            // First attempt: Camera + Mic
             const stream = await navigator.mediaDevices.getUserMedia({ video: requestVideo, audio: true });
             return { stream, videoEnabled: requestVideo };
         } catch (err) {
             console.warn("🚨 Media Hardware Error:", err);
 
             if (err.name === 'NotFoundError' || err.message.includes('Requested device not found')) {
-                // Agar camera nahi hai (e.g. PC), toh Voice Call pe shift kar do
                 try {
                     const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
                     alert("⚠️ Camera not found! Starting a Voice-Only call.");
@@ -117,11 +109,9 @@ export const VideoProvider = ({ children }) => {
                     return null;
                 }
             } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                // Browser ne block kar diya hai permanently
                 alert("🚨 CAMERA/MIC BLOCKED!\n\nPlease click the 'Lock' 🔒 icon in the URL bar above, allow Camera and Microphone, and refresh the page.");
                 return null;
             } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-                // Camera kisi aur app (Zoom, Camera app) mein on hai
                 alert("🚨 Hardware Error! Another app is currently using your Camera/Mic. Please close it and try again.");
                 return null;
             } else {
@@ -217,10 +207,13 @@ export const VideoProvider = ({ children }) => {
     const handleSetSelectedFriend = (friend) => {
         setSelectedFriend(friend);
         if (friend?.uid) markCallsAsViewed(friend.uid);
+
+        // 🔥 MAGIC FIX 1: Jab user kisi dost ki chat open karega (direct tap), tab permission maang lo!
+        requestNotificationPermission();
     };
 
     // =======================================================
-    // 4. User & Auth Setup
+    // 4. User Setup & Handlers
     // =======================================================
     useEffect(() => {
         if (authloading) return;
@@ -342,7 +335,7 @@ export const VideoProvider = ({ children }) => {
     };
 
     // =======================================================
-    // 6. CALLING ENGINE (Fully Protected)
+    // 6. 📞 CALLING ENGINE
     // =======================================================
     const startCall = async (targetUser, isVideo = true) => {
         try {
@@ -361,17 +354,15 @@ export const VideoProvider = ({ children }) => {
             setCallStatus('ringing');
             setCallerInfo({ uid: targetUid, name: typeof targetUser === 'string' ? "User" : (targetUser?.name || "User"), callType: isVideo ? 'video' : 'audio' });
 
-            // 🔥 SMART MEDIA REQUEST
             const mediaResult = await getMediaStreamSafe(isVideo);
             if (!mediaResult) {
-                // Agar block hai, toh yahin safely ruk jao. Call cut nahi "Cancel" hogi.
                 isConnectingRef.current = false;
                 setCallStatus('idle');
                 return;
             }
 
             const stream = mediaResult.stream;
-            const finalIsVideo = mediaResult.videoEnabled; // In case it fell back to audio
+            const finalIsVideo = mediaResult.videoEnabled;
             localStreamRef.current = stream;
 
             setTimeout(() => {
@@ -439,10 +430,8 @@ export const VideoProvider = ({ children }) => {
                 localStreamRef.current = null;
             }
 
-            // 🔥 SMART MEDIA REQUEST FOR RECEIVER
             const mediaResult = await getMediaStreamSafe(isVideo);
             if (!mediaResult) {
-                // Agar camera fail ho gaya toh Call End kar do
                 endCall();
                 return;
             }
@@ -652,6 +641,9 @@ export const VideoProvider = ({ children }) => {
     };
 
     const searchUsers = async (searchTerm) => {
+        // 🔥 MAGIC FIX 2: Jab user search karega tab notification maangenge
+        requestNotificationPermission();
+
         const term = searchTerm.toLowerCase().replace(/\s+/g, '');
         if (!term) return [];
         const snapshot = await getDocs(query(collection(db, "users"), where("username", ">=", term), where("username", "<=", term + '\uf8ff')));
@@ -662,6 +654,10 @@ export const VideoProvider = ({ children }) => {
 
     const acceptFriendRequest = async (requestId, senderId) => {
         if (!user?.uid || !senderId) return;
+
+        // 🔥 MAGIC FIX 3: Jab user friend request accept karega tab notification maangenge
+        requestNotificationPermission();
+
         await updateDoc(doc(db, "users", user.uid), { friends: arrayUnion(senderId) });
         await deleteDoc(doc(db, "friendRequests", requestId));
         await updateDoc(doc(db, "users", senderId), { friends: arrayUnion(user.uid) });
