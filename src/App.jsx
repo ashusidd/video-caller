@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react';
+import { useContext, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 // Contexts
@@ -14,48 +14,39 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Smart Action Lock
+// 📞 CALL HANDLER: Sirf Route Manage Karega
 // ==============================================================
 function CallHandler() {
-  const { acceptCall, endCall, callStatus, isLoading } = useContext(VideoContext);
+  const { callStatus, isLoading: videoLoading, friends, setSelectedFriend } = useContext(VideoContext);
+  const { user, loading: authLoading } = useContext(AuthContext);
+
   const location = useLocation();
   const navigate = useNavigate();
 
-  const actionHandled = useRef(false);
-
   useEffect(() => {
+    if (authLoading || videoLoading || !user) return;
+
     const params = new URLSearchParams(location.search);
-    const action = params.get('callAction');
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    if (!isIncoming && !action) return;
-
-    // ✅ ACCEPT LOGIC (Agar bhool se purane cache se dab jaye toh)
-    if (action === 'accept' && callStatus === 'receiving' && !actionHandled.current) {
-      actionHandled.current = true;
-      acceptCall();
-      navigate(location.pathname, { replace: true });
-      return;
-    }
-
-    // ❌ DECLINE BUTTON TAP LOGIC (Super Fast Fix)
-    // 🔥 Ab UI load hone ka wait hi nahi karega, tap karte hi Firebase se signal uda dega!
-    if (action === 'decline' && !actionHandled.current) {
-      actionHandled.current = true;
-      console.log("❌ Action: Explicit DECLINE Clicked");
-      endCall();
-      navigate(location.pathname, { replace: true });
-      return;
-    }
-
-    // ⚠️ NORMAL BODY TAP YA MISSED CALL LOGIC
-    if (callerId && !isLoading) {
+    // ⚠️ Agar simple Notification Tap hui hai
+    if (isIncoming === 'true' && callerId) {
       const timer = setTimeout(() => {
-        if (callStatus === 'idle' && !actionHandled.current) {
+        // Agar Firebase se koi zinda call nahi aayi (matlab missed ho gayi thi)
+        if (callStatus === 'idle') {
           console.log("Call missed/cut! Redirecting to chat...");
+
+          // Dost ka data select karke Dashboard pe bhej do
+          const friendToSelect = friends.find(f => f.uid === callerId);
+          if (friendToSelect) {
+            setSelectedFriend(friendToSelect);
+          }
+
           navigate(`/chat/${callerId}`, { replace: true });
-        } else if (!actionHandled.current && !action) {
+        } else {
+          // Agar call sach mein baj rahi hai toh URL clean kar do. 
+          // CallInterface khud hi screen par aa jayega aur tum manually Accept karoge!
           navigate(location.pathname, { replace: true });
         }
       }, 1500);
@@ -63,7 +54,7 @@ function CallHandler() {
       return () => clearTimeout(timer);
     }
 
-  }, [location.search, callStatus, isLoading, navigate, acceptCall, endCall]);
+  }, [location.search, callStatus, videoLoading, authLoading, user, navigate, friends, setSelectedFriend]);
 
   return null;
 }

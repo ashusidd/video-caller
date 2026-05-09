@@ -1,6 +1,8 @@
 // public/firebase-messaging-sw.js
 
-// 🔥 THE ZOMBIE KILLER: Ye naya code aate hi purane cache ko zabardasti maar dega
+// 🔥 Naya version taaki purana ziddi cache turant delete ho jaye
+const SW_VERSION = 'vcall-hd-update-v5-no-buttons';
+
 self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
@@ -22,20 +24,20 @@ messaging.onBackgroundMessage((payload) => {
 
     const notificationOptions = {
         body: isMissed
-            ? `You missed a call from ${callerName}`
-            : `${callerName} is calling you for a ${isAudio ? 'audio' : 'video'} call...`,
+            ? `Tap to open chat with ${callerName}`
+            : `Tap to answer ${isAudio ? 'audio' : 'video'} call...`,
         icon: '/favicon.svg',
         tag: 'vcall-sync-tag',
         renotify: true,
         requireInteraction: !isMissed,
         vibrate: isMissed ? [100] : [2000, 1000, 2000, 1000, 2000, 1000],
 
-        // 🔥 FIX: Accept button completely hta diya gaya hai. Ab zindagi me wapas nahi aayega!
-        actions: isMissed ? [] : [
-            { action: 'decline', title: '❌ Decline' }
-        ],
+        // ❌ SARE BUTTONS HATA DIYE GAYE HAIN!
+        actions: [],
+
         data: {
-            url: isMissed ? `/chat/${callerId}` : `/?incomingCall=true&callerId=${callerId}&callerName=${callerName}&type=${payload.data.type || 'video'}`
+            // Agar missed call hai toh chat route, warna sirf basic incoming alert
+            url: isMissed ? `/chat/${callerId}` : `/?incomingCall=true&callerId=${callerId}`
         }
     };
 
@@ -47,11 +49,6 @@ self.addEventListener('notificationclick', function (event) {
 
     const baseUrl = 'https://v-call-hd.vercel.app';
     let targetUrl = baseUrl + (event.notification.data.url || '/');
-
-    // 🔥 Decline parameter lagana
-    if (event.action === 'decline') {
-        targetUrl += targetUrl.includes('?') ? '&callAction=decline' : '?callAction=decline';
-    }
 
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
