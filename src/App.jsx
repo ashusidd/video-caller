@@ -21,43 +21,40 @@ function CallHandler() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // 🔥 FIX 2: Double Execution Rokne ke liye Action Lock
   const actionHandled = useRef(false);
 
   useEffect(() => {
-    const params = newSearchParams(location.search);
+    // 🔥 THE FIX: Yahan 'newSearchParams' ki jagah 'new URLSearchParams' kar diya hai
+    const params = new URLSearchParams(location.search);
     const action = params.get('callAction');
     const isIncoming = params.get('incomingCall');
     const callerId = params.get('callerId');
 
-    // ✅ ACCEPT BUTTON TAP LOGIC (Lock ke sath)
+    // ✅ ACCEPT BUTTON TAP LOGIC
     if (action === 'accept' && callStatus === 'receiving' && !actionHandled.current) {
       actionHandled.current = true;
       console.log("🚀 Action: Explicit ACCEPT Clicked");
       acceptCall();
-      navigate(location.pathname, { replace: true }); // Turant URL clean karega
+      navigate(location.pathname, { replace: true });
       return;
     }
 
-    // ❌ DECLINE BUTTON TAP LOGIC (Lock ke sath)
+    // ❌ DECLINE BUTTON TAP LOGIC
     if (action === 'decline' && callStatus === 'receiving' && !actionHandled.current) {
       actionHandled.current = true;
       console.log("❌ Action: Explicit DECLINE Clicked");
       endCall();
-      navigate(location.pathname, { replace: true }); // Turant URL clean karega
+      navigate(location.pathname, { replace: true });
       return;
     }
 
     // ⚠️ NORMAL BODY TAP YA MISSED CALL LOGIC
-    // Agar user ne body pe tap kiya (action nahi hai) aur call aa rahi thi
     if (isIncoming === 'true' && callerId && !isLoading && !action) {
       const timer = setTimeout(() => {
-        // Agar thodi der baad call marr chuki hai toh chat me bhejo
         if (callStatus === 'idle') {
           console.log("Call missed/cut! Redirecting to chat...");
           navigate(`/chat/${callerId}`, { replace: true });
         } else {
-          // Agar call zinda hai toh UI aane do aur URL clean kardo taaki refresh pe dikkat na ho
           navigate(location.pathname, { replace: true });
         }
       }, 1500);
