@@ -14,7 +14,7 @@ import Sidebar from './components/Sidebar';
 import CallInterface from './components/CallInterface';
 
 // ==============================================================
-// 📞 CALL HANDLER: Dashboard Deep-Linking Fix
+// 📞 CALL HANDLER: Dashboard Deep-Linking Master
 // ==============================================================
 function CallHandler() {
   const { callStatus, isLoading: videoLoading, friends, setSelectedFriend } = useContext(VideoContext);
@@ -25,52 +25,40 @@ function CallHandler() {
   const redirectDone = useRef(false);
 
   useEffect(() => {
-    // 1. Basic Check: Agar auth load ho raha hai toh ruk jao
-    if (authLoading || !user || redirectDone.current) return;
+    // 1. Agar auth ya video load ho raha hai toh ruk jao
+    if (authLoading || videoLoading || !user || redirectDone.current) return;
 
     const params = new URLSearchParams(location.search);
     const callerId = params.get('callerId');
 
     if (callerId) {
-      // 2. 🔥 SMART POLLING: Friends load hone tak wait karega
-      const checkAndRedirect = () => {
-        if (friends.length > 0) {
-          const targetFriend = friends.find(f => f.uid === callerId);
+      console.log("Found callerId in URL:", callerId);
 
-          if (targetFriend) {
-            console.log("Friend Found! Redirecting to dashboard...");
-            setSelectedFriend(targetFriend);
-            redirectDone.current = true;
+      // 2. Friends list check karo
+      if (friends && friends.length > 0) {
+        const targetFriend = friends.find(f => f.uid === callerId);
 
-            // Agar call cut chuki hai, toh chat page pe bhej do
+        if (targetFriend) {
+          console.log("Match Found! Forcing Dashboard Selection...");
+
+          // 🔥 FIX: Pehle state update karo, fir navigate karo
+          setSelectedFriend(targetFriend);
+          redirectDone.current = true;
+
+          // 1 second ka delay taaki state settle ho jaye
+          setTimeout(() => {
             if (callStatus === 'idle') {
+              // Exact chat route par bhejo
               navigate(`/chat/${callerId}`, { replace: true });
             } else {
-              // Agar call zinda hai, toh URL saaf karo (CallInterface khud dikhega)
-              navigate(location.pathname, { replace: true });
+              // Call chal rahi hai toh URL clean karo
+              navigate('/', { replace: true });
             }
-          }
+          }, 100);
         }
-      };
-
-      // Turant check karo
-      checkAndRedirect();
-
-      // Agar list late load ho rahi hai toh 3 seconds tak har 500ms pe check karega
-      const interval = setInterval(() => {
-        if (redirectDone.current) {
-          clearInterval(interval);
-        } else {
-          checkAndRedirect();
-        }
-      }, 500);
-
-      // 3 second baad stop kar do taaki loop na chale
-      setTimeout(() => clearInterval(interval), 3000);
-
-      return () => clearInterval(interval);
+      }
     }
-  }, [location.search, friends, authLoading, user, callStatus, navigate, setSelectedFriend]);
+  }, [location.search, friends, authLoading, videoLoading, user, callStatus, navigate, setSelectedFriend]);
 
   return null;
 }
@@ -79,6 +67,7 @@ function App() {
   const { user, loading: authloading } = useContext(AuthContext);
   const { userData, callStatus, isLoading: videoLoading } = useContext(VideoContext);
 
+  // Syncing state check
   const isSyncing = authloading || videoLoading || (user && userData === null);
 
   if (isSyncing) {
@@ -101,6 +90,7 @@ function App() {
     );
   }
 
+  // Auth Protection
   if (!user) return <Auth />;
   if (user && !userData?.username) return <Onboarding />;
 
@@ -108,6 +98,7 @@ function App() {
     <Router>
       <CallHandler />
       <div className="h-[100dvh] flex flex-col bg-black text-white font-sans overflow-hidden">
+        {/* Call UI humesha top pe */}
         {callStatus !== 'idle' && <CallInterface />}
 
         <div className="flex flex-col h-full overflow-hidden">
