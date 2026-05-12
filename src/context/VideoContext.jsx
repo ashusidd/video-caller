@@ -43,6 +43,9 @@ export const VideoProvider = ({ children }) => {
     const [callTimer, setCallTimer] = useState(0);
     const timerRef = useRef(null);
 
+    // 🔥 NAYA: Screen Wake Lock ka reference
+    const wakeLockRef = useRef(null);
+
     const callStatusRef = useRef(callStatus);
     const isConnectingRef = useRef(false);
 
@@ -268,6 +271,48 @@ export const VideoProvider = ({ children }) => {
 
         prevCallStatus.current = callStatus;
         return () => stopAllSounds();
+    }, [callStatus]);
+
+    // =======================================================
+    // 🌟 THE FIX: SCREEN WAKE LOCK (Call ke dauran screen band na ho)
+    // =======================================================
+    useEffect(() => {
+        const requestWakeLock = async () => {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLockRef.current = await navigator.wakeLock.request('screen');
+                    console.log('✅ Screen Wake Lock Active (Screen wont sleep!)');
+                } catch (err) {
+                    console.warn('🚨 Wake Lock error:', err);
+                }
+            }
+        };
+
+        const releaseWakeLock = async () => {
+            if (wakeLockRef.current !== null) {
+                await wakeLockRef.current.release().catch(() => { });
+                wakeLockRef.current = null;
+                console.log('❌ Screen Wake Lock Released');
+            }
+        };
+
+        if (callStatus === 'connected') {
+            requestWakeLock();
+
+            const handleVisibilityChange = () => {
+                if (document.visibilityState === 'visible' && callStatus === 'connected') {
+                    requestWakeLock();
+                }
+            };
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            return () => {
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+                releaseWakeLock();
+            };
+        } else {
+            releaseWakeLock();
+        }
     }, [callStatus]);
 
     useEffect(() => {
